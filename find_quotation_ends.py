@@ -23,26 +23,32 @@ def get_ends(content, quotations):
     for quotation in quotations:
         quotation_start = quotation.quotationOffset
         start_qm_pos = quotation_start - 1
-        bq = False
-        if '``' not in content[start_qm_pos]:
-            if content[start_qm_pos] != '<blockquote>':
-                ends.append([quotation.quoteID, -1])
-            else:
-                bq = True
-            break
+        if '``' in content[start_qm_pos]:
+            bq = False
+        elif content[start_qm_pos] == '<blockquote>':
+            bq = True
+        else:
+            ends.append(-1)
+            print('<ERROR>')
+            print(quotation)
+            print(content)
+            print('</ERROR>')
+            continue
 
         end_qm_pos = start_qm_pos + 1
         for i in range(start_qm_pos + 1, len(content)):
             if content[i] == "''" or (bq and content == '</blockquote>'):
                 end_qm_pos = i
                 break
-
         if content[end_qm_pos] == "''":
             ends.append(end_qm_pos)
         else:
             ends.append(-1)
-
+            print('<ERROR>')
+            print(quotation)
+            print(content)
+            print('</ERROR>')
     return ends
 
 
-articles.select('articleID', 'quotations', get_ends('content', 'quotations').alias('ends'), 'names').write.parquet(PATH_TO_OUT)
+articles.select('articleID', 'content', 'quotations', get_ends('content', 'quotations').alias('ends'), 'names').write.parquet(PATH_TO_OUT)
