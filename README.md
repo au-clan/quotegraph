@@ -10,12 +10,9 @@ Quotegraph is currently not publicly available. You can find the dataset at `/dl
  |-- target: string
  |-- quotation: string
 ```
-`quoteID` - Primary key of the quotation (format: "YYYY-MM-DD-{increasing int:06d}"). Can be used for joining with Quotebank data.
-
-`speaker` - Most likely Wikidata QID of the most likely speaker of the quotation. Can be used for joining with Wikidata to extract the speaker's attributes.
-
-`target` - Most likely Wikidata QID of a mention appearing in the quotation
-
+`quoteID` - Primary key of the quotation (format: "YYYY-MM-DD-{increasing int:06d}"). Can be used for joining with Quotebank data. 
+`speaker` - Most likely Wikidata QID of the most likely speaker of the quotation. Can be used for joining with Wikidata to extract the speaker's attributes. 
+`target` - Most likely Wikidata QID of a mention appearing in the quotation 
 `quotation` - Text of the quotation
 
 ## Caveats
@@ -31,4 +28,5 @@ Since it is derived from Quotebank, Quotegraph inherits all Quotebank's shortcom
 3. What are the properties of non-reciprocated interactions? 
 
 [1] Timoté Vaucher, Andreas Spitz, Michele Catasta, and Robert West. “Quotebank: A Corpus of Quotations from a Decade of News”. In Proceedings of the 14th ACM International Conference on Web Search and Data Mining. 2021.
+
 [2] Marko Čuljak, Andreas Spitz, Robert West, Akhil Arora. “Strong Heuristics for Named Entity Linking”. In Proceedings 2022 Conference of the North American Chapter of the Association for Compuational Linguistics: Student Research Workshop.
