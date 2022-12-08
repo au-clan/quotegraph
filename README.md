@@ -11,8 +11,11 @@ Quotegraph is currently not publicly available. You can find the dataset at `/dl
  |-- quotation: string
 ```
 `quoteID` - Primary key of the quotation (format: "YYYY-MM-DD-{increasing int:06d}"). Can be used for joining with Quotebank data.
+
 `speaker` - Most likely Wikidata QID of the most likely speaker of the quotation. Can be used for joining with Wikidata to extract the speaker's attributes.
+
 `target` - Most likely Wikidata QID of a mention appearing in the quotation
+
 `quotation` - Text of the quotation
 
 ## Caveats
