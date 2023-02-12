@@ -26,6 +26,7 @@ Since it is derived from Quotebank, Quotegraph inherits all Quotebank's shortcom
 1. When a prominent speakers mention someone, does that person get more quoted or mentioned in other quotes? Can we identify leaders and their followers by investigating the patterns of person mentions?
 2. Who are the hubs and the authorities in Quotegraph and what are their properties?
 3. What are the properties of non-reciprocated interactions? 
+4. What are the properties of the communities detected in Quotegraph?
 
 ## References
 [1] Timoté Vaucher, Andreas Spitz, Michele Catasta, and Robert West. “Quotebank: A Corpus of Quotations from a Decade of News”. In Proceedings of the 14th ACM International Conference on Web Search and Data Mining. 2021.
