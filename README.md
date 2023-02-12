@@ -1,7 +1,7 @@
 # Quotegraph
 Quotegraph is a large heterogeneous social network respresented as a directed graph extracted from quotations in [Quotebank](https://zenodo.org/record/4277311). Edges point from the speaker of a quotation to a person mentioned in that quotation. Person names in Quotebank are linked to Wikidata entities, which allows for studying roles of different person attributes in the interactions emerging in Quotebank. Quotegraph boasts 528 thousand nodes and 8.6 million edges, which makes it suitable for a large-scale analysis of speaker ineractions in news articles.
 
-Quotegraph was built as a part of a MS thesis project and was used to investigate the patterns in the use of personal reference expressions in public discourse. The thesis is in [Quotegraph_report.pdf](https://github.com/epfl-dlab/quotegraph/blob/main/Quotegraph_report.pdf). In the document, you can find the details on Quotegraph building (chapter 3), and Quotegraph's structural properties (chapter 4).
+Quotegraph was built as a part of a MS thesis project and was used to investigate the patterns in the use of personal reference expressions in public discourse. The thesis is availbale on [Google drive](https://github.com/epfl-dlab/quotegraph/blob/main/Quotegraph_report.pdf). In the document, you can find the details on Quotegraph building (chapter 3), and Quotegraph's structural properties (chapter 4).
 
 Quotegraph is currently not publicly available. You can find the dataset at `/dlabdata1/culjak/quotegraph.parquet` on dlab's internal nodes. Below is the schema of the dataset:
 ```
@@ -21,6 +21,10 @@ As a part of the thesis, we explored research questions focusing on speaker-to-m
 
 ### Quotebank issues
 Since it is derived from Quotebank, Quotegraph inherits all Quotebank's shortcomings, including the imperfect speaker attribution [1] and disambiguation [2]. Due to encoding issues, those shortcomings are further emphasized in the earlier phases of Quotebank (A-C). The data from the phases A-C should therefore be analyzed with great caution.
+
+### Size
+Since Quotegraph is a fairly large network, it necessitates the use of efficient network analysis tools such as [networkit](https://networkit.github.io/), [graph-tool](https://graph-tool.skewed.de/), or [snap](http://snap.stanford.edu/snappy/index.html), and renders [networkx](https://networkx.org/) unusable.
+
 
 ## Open research questions
 1. When a prominent speakers mention someone, does that person get more quoted or mentioned in other quotes? Can we identify leaders and their followers by investigating the patterns of person mentions?
