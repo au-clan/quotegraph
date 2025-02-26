@@ -52,10 +52,7 @@ def plot_model_coefs(coefs, models, palette, labels, delta=0.1):
             offset += delta
         k += 1
 
-def plot_gender(models, figsize=None):
-    if figsize is None:
-        figsize = [6.4 * 3, 4.8]
-
+def plot_gender(models):
     ff_coef = [
         "Intercept",
         "C(source_female)[T.True]",
@@ -72,7 +69,6 @@ def plot_gender(models, figsize=None):
     labels_i = ["FF", "MF", "FM", "MM"]
     labels = ["FN", "LN", "FLN", "A"]
 
-    plt.figure(figsize=figsize)
     plot_coefs(coefs, models, palette, labels)
 
     plt.xticks(range(1, 5), labels_i)
@@ -92,7 +88,7 @@ def plot_gender(models, figsize=None):
     plt.ylim(-3.1, 0.5)
 
 
-def plot_gender_occupations(models, figsize=None):
+def plot_gender_occupations(models):
     domains = ['Politics', 'Sport', 'Art', 'Other']
     ff_coef_domain = [i for i in models[0].params.index if
                       'sport' in i or 'art' in i or 'Intercept' in i or 'female' in i or 'O_Other' in i]
@@ -107,7 +103,6 @@ def plot_gender_occupations(models, figsize=None):
         return False
 
     m = 1
-    plt.figure(figsize=figsize)
     for domain in domains[:-1]:
         other_domains = [i for i in domains if i != domain]
         ff_coef = [i for i in ff_coef_domain if not has_any(i, other_domains)]
@@ -120,7 +115,7 @@ def plot_gender_occupations(models, figsize=None):
         palette = ['#df2935', '#3772ff', '#fdca40', 'lightgrey']
         labels = ['FN', 'LN', 'FLN', 'A']
         plt.subplot(1, 3, m)
-        plot_coefs(coefs, models, palette, labels)
+        plot_model_coefs(coefs, models, palette, labels)
         plt.xticks(range(1, 5), labels_i)
 
         if m == 1:
@@ -144,8 +139,7 @@ def plot_gender_occupations(models, figsize=None):
                bbox_to_anchor=(1, 0.5))
     plt.subplots_adjust(wspace=0.05, hspace=0)
 
-
-def plot_party(models, figsize=None):
+def plot_party(models):
     rr_coef = ['Intercept', 'C(source_US_party)[T.Republican]', 'C(target_US_party)[T.Republican]', 'C(source_US_party)[T.Republican]:C(target_US_party)[T.Republican]']
     dr_coef = ['Intercept', 'C(target_US_party)[T.Republican]']
     rd_coef = ['Intercept', 'C(source_US_party)[T.Republican]']
@@ -156,7 +150,7 @@ def plot_party(models, figsize=None):
 
     palette = ['#df2935', '#3772ff', '#fdca40', 'lightgrey']
     labels = ['FN', 'LN', 'FLN', 'A']
-    plt.figure(figsize=figsize)
+
     plt.subplot(1,2,1)
     plot_model_coefs(coefs, models, palette, labels)
 
