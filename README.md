@@ -1,7 +1,7 @@
 # Quotegraph
 Quotegraph is a large social network represented as a directed graph extracted from quotations in [Quotebank](https://zenodo.org/record/4277311). Edges point from the speaker of a quotation to a person mentioned in that quotation. The names of the actors are linked to Wikidata using [quotebank-toolkit](https://github.com/epfl-dlab/quotebank-toolkit). Quotegraph boasts 528 thousand nodes and 8.6 million edges, which makes it suitable for a large-scale analysis of speaker interactions in news articles. The data is available at https://zenodo.org/records/16275215.
 
-Preprint is coming soon...
+More deatils on network construction are available in the [preprint](https://arxiv.org/abs/2507.17626v1).
 
 ## Caveats
 ### Quotebank issues
