@@ -1,0 +1,30 @@
+import pyspark
+import pyspark.sql.functions as F
+import pyspark.sql.types as T
+
+from pyspark.sql import SparkSession
+from tld import get_fld, get_tld
+
+
+def start_spark(
+    config=None, appName="quotegraph", n_threads=24
+) -> pyspark.sql.SparkSession:
+    spark = (
+        pyspark.sql.SparkSession.builder.master(f"local[{n_threads}]")
+        .appName(appName)
+        .config("spark.driver.memory", "60g")
+        .config("spark.executor.memory", "32g")
+        .config("spark.sql.execution.arrow.pyspark.enabled", "true")
+        .config("spark.maxResultSize", "16g")
+    )
+    if config is not None:
+        for k, v in config:
+            spark = spark.config(k, v)
+
+    return spark.getOrCreate()
+
+
+@F.udf(T.StringType())
+def extract_outlet_domain(url: str) -> str:
+    domain = get_fld(url)
+    return domain
