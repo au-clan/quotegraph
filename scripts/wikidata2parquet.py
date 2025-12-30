@@ -4,21 +4,12 @@ import logging
 import multiprocessing
 import subprocess
 import shutil
+import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import traceback
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from tqdm import tqdm
-
-try:
-    import orjson
-    def json_loads(s):
-        return orjson.loads(s)
-except ImportError:
-    import json
-    def json_loads(s):
-        return json.loads(s)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -26,99 +17,75 @@ logging.basicConfig(
 
 CHUNK_SIZE = 256 * 1024 * 1024
 
+SCHEMA = pa.schema([("instance", pa.string())])
+
 
 def has_pigz():
     """Check if pigz is available for parallel decompression."""
     return shutil.which("pigz") is not None
 
 
-def parse_and_write_chunk(chunk_data, chunk_idx, output_dir, leftover_prefix=b""):
-    """Parse a chunk of data and write to parquet.
-    
+def process_chunk_data(data, chunk_idx, output_dir, file_uuid):
+    """Process a chunk of lines and write to parquet as raw strings.
+
+    Each JSON line is stored as-is in the "instance" column (no parsing).
+
     Args:
-        chunk_data: Raw bytes containing JSON lines.
+        data: Raw bytes containing complete lines.
         chunk_idx: Index of this chunk.
         output_dir: Output directory for parquet files.
-        leftover_prefix: Incomplete line from previous chunk.
-    
+        file_uuid: UUID for this job (Spark-style naming).
+
     Returns:
-        Tuple of (leftover_suffix, num_records, output_path).
+        Number of records written.
     """
-    try:
-        data = leftover_prefix + chunk_data
-        
-        last_newline = data.rfind(b"\n")
-        if last_newline == -1:
-            return data, 0, None
-        
-        complete_data = data[:last_newline + 1]
-        leftover = data[last_newline + 1:]
-        
-        records = []
-        for line in complete_data.split(b"\n"):
-            line = line.strip()
-            if not line or line in (b"[", b"]", b","):
-                continue
-            line = line.rstrip(b",")
-            if line:
-                try:
-                    records.append(json_loads(line))
-                except (ValueError, TypeError):
-                    pass
-        
-        if not records:
-            return leftover, 0, None
-        
-        table = pa.Table.from_pylist(records)
-        part_path = os.path.join(output_dir, f"part-{chunk_idx:05d}.parquet")
-        pq.write_table(table, part_path, compression="snappy")
-        
-        return leftover, len(records), part_path
-        
-    except Exception as e:
-        logging.error(f"Error processing chunk {chunk_idx}: {e}")
-        traceback.print_exc()
-        return b"", 0, None
+    instances = []
+    for line in data.split(b"\n"):
+        line = line.strip()
+        if not line or line in (b"[", b"]", b","):
+            continue
+        # Remove trailing comma if present (Wikidata dump format)
+        line = line.rstrip(b",")
+        if line:
+            # Store as string without parsing
+            instances.append(line.decode("utf-8"))
+
+    if not instances:
+        return 0
+
+    table = pa.table({"instance": instances}, schema=SCHEMA)
+
+    part_path = os.path.join(
+        output_dir,
+        f"part-{chunk_idx:05d}-{file_uuid}.snappy.parquet"
+    )
+    pq.write_table(table, part_path, compression="snappy")
+
+    return len(instances)
 
 
-def chunk_reader_thread(stream, chunk_queue, chunk_size, pbar):
-    """Thread that reads chunks from stream and puts them in queue."""
-    chunk_idx = 0
-    leftover = b""
-    
-    while True:
-        data = stream.read(chunk_size)
-        if not data:
-            if leftover:
-                chunk_queue.put((chunk_idx, leftover, True))
-            chunk_queue.put(None)  # Sentinel
-            break
-        
-        chunk_queue.put((chunk_idx, leftover + data, False))
-        leftover = b""
-        chunk_idx += 1
-        
-        pbar.update(len(data) // 8)
+def gz_to_parquet_parallel(source_gz, dest_parquet, n_decompress, n_workers, chunk_size):
+    """Convert gzip-compressed JSONL to Parquet with raw JSON strings.
 
-
-def gz_json_to_parquet_parallel(source_gz, dest_parquet, n_decompress, n_workers, chunk_size):
-    """Convert gzip-compressed JSONL to Parquet with full parallelism.
-
-    Uses pigz for parallel decompression, reads large chunks, and processes
-    them in parallel with multiple workers.
+    Stores each JSON line as a raw string in the "instance" column.
+    No JSON parsing is performed - much faster and avoids schema issues.
 
     Args:
-        source_gz: Path to the input gzip-compressed JSON lines file.
+        source_gz: Path to the input gzip-compressed file.
         dest_parquet: Output directory path for parquet part files.
         n_decompress: Number of threads for decompression (pigz).
         n_workers: Number of parallel workers for processing.
         chunk_size: Size of chunks to read and process.
     """
     logging.info(f"Converting '{source_gz}' to '{dest_parquet}'")
+    logging.info("Output schema: single column 'instance' (raw JSON strings)")
     logging.info(f"Decompress threads: {n_decompress}, Workers: {n_workers}, Chunk: {chunk_size // (1024*1024)}MB")
 
     os.makedirs(dest_parquet, exist_ok=True)
     compressed_size = os.path.getsize(source_gz)
+
+    job_uuid = str(uuid.uuid4())
+    logging.info(f"Job UUID: {job_uuid}")
 
     if has_pigz():
         logging.info(f"Using pigz with {n_decompress} threads")
@@ -149,30 +116,31 @@ def gz_json_to_parquet_parallel(source_gz, dest_parquet, n_decompress, n_workers
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
             chunk_idx = 0
             leftover = b""
-            
+
             while True:
                 data = stream.read(chunk_size)
                 if not data:
                     break
-                
+
                 full_data = leftover + data
-                
+
                 last_newline = full_data.rfind(b"\n")
                 if last_newline == -1:
                     leftover = full_data
                     continue
-                
+
                 to_process = full_data[:last_newline + 1]
                 leftover = full_data[last_newline + 1:]
-                
+
                 future = executor.submit(
-                    process_chunk_data, to_process, chunk_idx, dest_parquet
+                    process_chunk_data, to_process, chunk_idx, dest_parquet, job_uuid
                 )
                 futures[future] = chunk_idx
                 chunk_idx += 1
-                
+
                 pbar.update(len(data) // 8)
-                
+
+                # Collect completed futures
                 done = [f for f in futures if f.done()]
                 for f in done:
                     try:
@@ -182,7 +150,8 @@ def gz_json_to_parquet_parallel(source_gz, dest_parquet, n_decompress, n_workers
                     except Exception as e:
                         logging.error(f"Chunk failed: {e}")
                     del futures[f]
-                
+
+                # Backpressure
                 while len(futures) >= n_workers * 2:
                     f = next(as_completed(futures))
                     try:
@@ -192,13 +161,14 @@ def gz_json_to_parquet_parallel(source_gz, dest_parquet, n_decompress, n_workers
                     except Exception as e:
                         logging.error(f"Chunk failed: {e}")
                     del futures[f]
-            
+
+            # Process remaining
             if leftover.strip():
                 future = executor.submit(
-                    process_chunk_data, leftover, chunk_idx, dest_parquet
+                    process_chunk_data, leftover, chunk_idx, dest_parquet, job_uuid
                 )
                 futures[future] = chunk_idx
-            
+
             for f in as_completed(futures):
                 try:
                     n_recs = f.result()
@@ -208,49 +178,28 @@ def gz_json_to_parquet_parallel(source_gz, dest_parquet, n_decompress, n_workers
                     logging.error(f"Chunk failed: {e}")
 
             pbar.update(pbar.total - pbar.n)
-            
+
     finally:
         pbar.close()
         stream.close()
         if proc:
             proc.wait()
 
+    success_path = os.path.join(dest_parquet, "_SUCCESS")
+    with open(success_path, "w") as f:
+        pass
+
     logging.info(f"Done! Wrote {total_records:,} records to {total_chunks} parquet files.")
     logging.info(f"Output: {dest_parquet}/")
-
-
-def process_chunk_data(data, chunk_idx, output_dir):
-    """Process a chunk of complete JSON lines and write parquet.
-    
-    This runs in a worker process.
-    """
-    records = []
-    for line in data.split(b"\n"):
-        line = line.strip()
-        if not line or line in (b"[", b"]", b","):
-            continue
-        line = line.rstrip(b",")
-        if line:
-            try:
-                records.append(json_loads(line))
-            except (ValueError, TypeError):
-                pass
-    
-    if not records:
-        return 0
-    
-    table = pa.Table.from_pylist(records)
-    part_path = os.path.join(output_dir, f"part-{chunk_idx:05d}.parquet")
-    pq.write_table(table, part_path, compression="snappy")
-    
-    return len(records)
+    logging.info("Read in PySpark: df = spark.read.parquet('path')")
+    logging.info("Parse JSON in Spark: df.select(from_json(col('instance'), schema))")
 
 
 if __name__ == "__main__":
     cpu_count = multiprocessing.cpu_count()
-    
+
     parser = argparse.ArgumentParser(
-        description="Convert gzip JSONL to Parquet (fully parallel)."
+        description="Convert gzip JSONL to Parquet (raw JSON strings, no parsing)."
     )
     parser.add_argument("input_gz", type=str, help="Input .json.gz file")
     parser.add_argument("output_parquet", type=str, help="Output Parquet folder path")
@@ -264,7 +213,7 @@ if __name__ == "__main__":
         "--n_workers",
         type=int,
         default=cpu_count // 2,
-        help=f"Workers for JSON parsing + parquet writing (default: {cpu_count // 2})",
+        help=f"Workers for parquet writing (default: {cpu_count // 2})",
     )
     parser.add_argument(
         "--chunk_size",
@@ -274,10 +223,10 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    gz_json_to_parquet_parallel(
-        args.input_gz, 
-        args.output_parquet, 
+    gz_to_parquet_parallel(
+        args.input_gz,
+        args.output_parquet,
         args.n_decompress,
-        args.n_workers, 
+        args.n_workers,
         args.chunk_size
     )
