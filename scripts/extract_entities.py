@@ -2,13 +2,7 @@
 Gazetteer-based Named Entity Recognizer for Quote Attribution.
 
 Matches PERSON entity names from a Wikidata gazetteer against text contexts
-surrounding quotes. Assumes Wikidata alias table is complete.
-
-Changes (2025-12-31):
-- Replaced eval() with ast.literal_eval() for security
-- Added comprehensive error handling and logging
-- Added text normalization (hyphens, initials, possessives, family plurals)
-- Added honorific/suffix stripping (Dr., Jr., etc.)
+surrounding quotes. First-name references require prior full-name activation.
 """
 
 import argparse
@@ -28,95 +22,66 @@ logger = logging.getLogger(__name__)
 PUNCT = "".join(x for x in string.punctuation if x not in "[]")
 TARGET_QUOTE_TOKEN = "[TARGET_QUOTE]"
 MASK_TOKEN = "[MASK]"
+MIN_NAME_LEN = 3
 
-# Words to filter from entity names
 BLACK_LIST = {"president", "manager"}
 HONORIFICS = {
-    "mr",
-    "mrs",
-    "ms",
-    "miss",
-    "dr",
-    "prof",
-    "sir",
-    "dame",
-    "lord",
-    "lady",
-    "rev",
-    "hon",
-    "sen",
-    "rep",
-    "gov",
-    "gen",
-    "col",
-    "maj",
-    "capt",
-    "lt",
-    "sgt",
-    "rabbi",
-    "imam",
-    "fr",
-    "brother",
-    "sister",
-    "saint",
-    "st",
-    # Name suffixes
-    "jr",
-    "sr",
-    "ii",
-    "iii",
-    "iv",
-    "v",
-    "esq",
-    "phd",
-    "md",
-    "dds",
-    "jd",
+    "mr", "mrs", "ms", "miss", "dr", "prof", "sir", "dame", "lord", "lady",
+    "rev", "hon", "sen", "rep", "gov", "gen", "col", "maj", "capt", "lt",
+    "sgt", "rabbi", "imam", "fr", "brother", "sister", "saint", "st",
+    "jr", "sr", "ii", "iii", "iv", "v", "esq", "phd", "md", "dds", "jd",
 }
+SPECIAL_MARKERS = {"-1", "none", "not_quote", "not_mentioned", "not_en", "ambiguous", "other"}
 
-SPECIAL_MARKERS = {
-    "-1",
-    "none",
-    "not_quote",
-    "not_mentioned",
-    "not_en",
-    "ambiguous",
-    "other",
-}
+
+def flatten_entities(value):
+    """Yield (q_name, qid, is_first_name_only) tuples from nested structure."""
+    if isinstance(value, tuple) and len(value) >= 2 and isinstance(value[0], str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            yield from flatten_entities(item)
 
 
 def normalize_text(text):
-    """Normalize hyphens (Jean-Pierre -> Jean Pierre) and initials (J. -> J)."""
+    """Normalize hyphens and initials."""
     if not text:
         return ""
-    text = re.sub(
-        r"(?<!\[)(\w)-(\w)(?!\])", r"\1 \2", text
-    )  # Hyphens (preserve [TARGET_QUOTE])
-    text = re.sub(r"\b([A-Za-z])\.\s*", r"\1 ", text)  # Initials
+    text = re.sub(r"(?<!\[)(\w)-(\w)(?!\])", r"\1 \2", text)
+    text = re.sub(r"\b([A-Za-z])\.\s*", r"\1 ", text)
     return re.sub(r"\s+", " ", text).strip()
 
 
-def normalize_person_token(token):
-    """Normalize family plurals: Bidens/bidens -> Biden/biden."""
-    if (
-        not token
-        or len(token) < 4
-        or not token.endswith("s")
-        or token.endswith("ss")
-    ):
-        return token
-    second_last = token[-2].lower()
-    if second_last in "aeiou":  # Obamas -> Obama
-        return token[:-1]
-    token_lower = token.lower()
-    if token_lower.endswith(("ens", "ans", "ons")):  # Bidens -> Biden
-        return token[:-1]
-    return token
+def filter_tokens(tokens):
+    """Filter out blacklisted words and honorifics."""
+    return [t for t in tokens if t.lower() not in BLACK_LIST and t.lower().rstrip(".") not in HONORIFICS]
 
 
 def create_trie(names):
-    """Create trie from entity names for prefix matching."""
+    """Create trie from entity names with first-name activation tracking."""
     trie = StringTrie(delimiter="/")
+
+    def add(key, q_name, qid, first_only):
+        val = (q_name, qid, first_only)
+        if key not in trie:
+            trie[key] = val
+        else:
+            existing = trie[key]
+            if isinstance(existing, list):
+                if not any(e[0] == q_name for e in existing):
+                    existing.append(val)
+            elif existing[0] != q_name:
+                trie[key] = [existing, val]
+
+    def index_name(first, last, q_name, qid):
+        """Add name variants to trie."""
+        if first and last and len(first) >= 2 and len(last) >= 2:
+            add(f"{first}/{last}".lower(), q_name, qid, False)
+        if first and len(first) >= MIN_NAME_LEN:
+            add(first.lower(), q_name, qid, True)  # First-name requires activation
+        if last and len(last) >= MIN_NAME_LEN:
+            add(last.lower(), q_name, qid, False)
+
     for name, qid in names:
         try:
             q_name = ast.literal_eval(qid[0])[1]
@@ -125,361 +90,283 @@ def create_trie(names):
         if not name or not name.strip():
             continue
 
-        # Add normalized and original (if hyphenated) versions
-        normalized = normalize_text(name)
-        variants = [normalized]
-        if name != normalized and "-" in name:
-            variants.append(name)
+        tokens = filter_tokens(normalize_text(name).split())
+        if not tokens:
+            continue
 
-        for variant in variants:
-            tokens = [
-                x
-                for x in variant.split()
-                if x.lower() not in BLACK_LIST
-                and x.lower().rstrip(".") not in HONORIFICS
-            ]
-            if not tokens:
-                continue
-            for i in range(len(tokens)):
-                key = "/".join(tokens[i:]).lower()
-                if key:
-                    trie[key] = (q_name, qid)
+        first = tokens[0] if len(tokens) > 1 else None
+        last = tokens[-1] if tokens else None
+        index_name(first, last, q_name, qid)
+
+        # Handle hyphenated variants
+        if "-" in name:
+            orig_tokens = filter_tokens(name.split())
+            if orig_tokens:
+                orig_first = orig_tokens[0] if len(orig_tokens) > 1 else None
+                orig_last = orig_tokens[-1]
+                index_name(orig_first, orig_last, q_name, qid)
+
     return trie
 
 
 def fix_punct_tokens(tokens):
-    """Separate punctuation, strip honorifics, normalize family plurals."""
-    if not tokens:
-        return []
+    """Separate punctuation and strip honorifics."""
     out = []
     for token in tokens:
         if not token:
             continue
-        # Strip leading punctuation
         if token.startswith("[") and token.endswith("]"):
             out.append(token)
             continue
         while token and token[0] in PUNCT:
             token = token[1:]
-        if not token:
+        if not token or token.lower().rstrip(".") in HONORIFICS:
             continue
-        # Skip honorifics/suffixes
-        if token.lower().rstrip(".") in HONORIFICS:
-            continue
-        # Handle punctuation and possessives
         if token[-1] in PUNCT:
-            base = normalize_person_token(token[:-1])
-            if base:
-                out.append(base)
+            if token[:-1]:
+                out.append(token[:-1])
             out.append(token[-1])
-        elif token.endswith("'s") and len(token) >= 2:
+        elif token.endswith("'s"):
             if token[:-2]:
                 out.append(token[:-2])
             out.append("'s")
-        elif token.endswith("s'") and len(token) >= 2:
-            base = normalize_person_token(token[:-1])
-            if base:
-                out.append(base)
+        elif token.endswith("s'"):
+            if token[:-1]:
+                out.append(token[:-1])
             out.append("'")
         else:
-            out.append(normalize_person_token(token))
+            out.append(token)
     return out
 
 
-def reduce_entities(entities):
-    """Group entity occurrences by Q-name."""
-    out = {}
-    for i, value in entities.items():
-        if value is None:
-            continue
-        items = value if isinstance(value, list) else [value]
-        for item in items:
-            if isinstance(item, tuple) and len(item) >= 2:
-                q_name, qinfo = item[0], item[1]
-                if q_name in out:
-                    out[q_name][0].append(i)
-                else:
-                    out[q_name] = ([i], qinfo)
-    return out
-
-
-def find_entities(text, trie, mask=MASK_TOKEN):
-    """Find and mask named entities in text using gazetteer trie."""
+def find_entities(text, trie, mask=MASK_TOKEN, require_caps=True):
+    """Find and mask named entities. First-name refs require prior full-name match."""
     if not text or not text.strip():
         return "", {}
 
-    text = normalize_text(text)
-    tokens = fix_punct_tokens(text.split())
+    tokens = fix_punct_tokens(normalize_text(text).split())
     if not tokens:
         return "", {}
 
-    start, count, entities, out = 0, 1, {}, []
+    activated = set()
+    entities, out = {}, []
+    start, count = 0, 1
 
-    for i in range(len(tokens)):
-        key = "/".join(tokens[start : i + 1]).lower()
+    def filter_match(match):
+        """Filter candidates by activation status. Returns (filtered, has_full_name)."""
+        if not match:
+            return None, False
+        filtered, has_full = [], False
+        for e in flatten_entities(match):
+            is_first_only = e[2] if len(e) > 2 else False
+            if not is_first_only:
+                has_full = True
+                filtered.append(e)
+            elif e[0] in activated:
+                filtered.append(e)
+        return (filtered[0] if len(filtered) == 1 else filtered) if filtered else None, has_full
+
+    def accept(matched_toks):
+        """Check capitalization for single-token matches."""
+        if not require_caps or len(matched_toks) > 1:
+            return True
+        t = matched_toks[0]
+        return t[0].isupper() if t and not t.startswith("[") else True
+
+    def activate(match):
+        for e in flatten_entities(match):
+            activated.add(e[0])
+
+    def record_match(match, matched_toks, is_full):
+        nonlocal count
+        entities[count] = match
+        count += 1
+        out.append(mask)
+        if len(matched_toks) > 1 or is_full:
+            activate(match)
+
+    i = 0
+    while i < len(tokens):
+        key = "/".join(tokens[start:i + 1]).lower()
         if not key:
             out.append(tokens[i])
             start = i + 1
+            i += 1
             continue
 
         try:
             if trie.has_subtrie(key):
-                if i == len(tokens) - 1:  # End of string
-                    match = list(trie[key:])
-                    if match:
-                        entities[count] = (
-                            match[0] if len(match) == 1 else match
-                        )
+                if i == len(tokens) - 1:
+                    matched = tokens[start:i + 1]
+                    filtered, is_full = filter_match(list(trie[key:]))
+                    if filtered and accept(matched):
+                        entities[count] = filtered
                         out.append(mask)
+                        if is_full:
+                            activate(filtered)
                     else:
-                        out.extend(tokens[start : i + 1])
+                        out.extend(matched)
+                i += 1
             elif key in trie:
-                entities[count] = trie[key]
-                count += 1
-                out.append(mask)
-                start = i + 1
-            elif start < i:  # Partial match
-                old_key = "/".join(tokens[start:i]).lower()
-                match = list(trie[old_key:]) if old_key else None
-                if match:
-                    entities[count] = match[0] if len(match) == 1 else match
-                    count += 1
-                    out.append(mask)
+                matched = tokens[start:i + 1]
+                filtered, is_full = filter_match(trie[key])
+                if filtered and accept(matched):
+                    record_match(filtered, matched, is_full)
+                    start = i + 1
+                    i += 1
                 else:
-                    out.extend(tokens[start:i])
+                    out.append(tokens[start])
+                    start += 1
+            elif start < i:
+                old_key = "/".join(tokens[start:i]).lower()
+                matched = tokens[start:i]
+                filtered, is_full = filter_match(list(trie[old_key:]) if old_key else None)
+                if filtered and accept(matched):
+                    record_match(filtered, matched, is_full)
+                else:
+                    out.extend(matched)
                 start = i if trie.has_node(tokens[i].lower()) else i + 1
                 if start == i + 1:
                     out.append(tokens[i])
+                i += 1
             else:
                 out.append(tokens[i])
                 start = i + 1
+                i += 1
         except (KeyError, TypeError):
             out.append(tokens[i])
             start = i + 1
+            i += 1
 
     if not out:
         return "", {}
 
-    retokenized = "".join(
-        " " + t if not t.startswith("'") and t not in PUNCT else t for t in out
-    ).strip()
-    return retokenized, reduce_entities(entities)
+    result = "".join(" " + t if not t.startswith("'") and t not in PUNCT else t for t in out).strip()
+
+    # Group by Q-name
+    grouped = {}
+    for idx, val in entities.items():
+        for e in flatten_entities(val):
+            q_name, qinfo = e[0], e[1]
+            if q_name in grouped:
+                grouped[q_name][0].append(idx)
+            else:
+                grouped[q_name] = ([idx], qinfo)
+
+    return result, grouped
 
 
-# Backwards compatibility alias
-find_entites = find_entities
+find_entites = find_entities  # Backwards compatibility
 
 
-def get_targets(entities, target_entity):
+def get_targets(entities, target):
     """Get target entity positions and ambiguity flag."""
-    targets = entities.get(target_entity)
-    if not targets:
-        return [0], False
-    if (
-        isinstance(targets, tuple)
-        and targets[0]
-        and isinstance(targets[0], list)
-    ):
-        return targets[0], len(targets[0]) > 1
+    t = entities.get(target)
+    if t and isinstance(t, tuple) and t[0] and isinstance(t[0], list):
+        return t[0], len(t[0]) > 1
     return [0], False
 
 
-def check_speaker_in_entities(speaker, names):
-    """Check if speaker is in entity list or is a special marker."""
-    if speaker in SPECIAL_MARKERS:
-        return True
-    if not names:
-        return False
-    for name, qid in names:
-        try:
-            if ast.literal_eval(qid[0])[1] == speaker:
-                return True
-        except (ValueError, SyntaxError, IndexError, TypeError):
-            continue
-    return False
+def _transform(x, include_speaker=True):
+    """Transform quote row by extracting entities."""
+    try:
+        names = x.names
+        left, right = x.leftContext, x.rightContext
+        speaker = x.speaker if include_speaker else None
+    except AttributeError:
+        return None
+
+    if include_speaker:
+        # Check speaker in entities
+        if speaker not in SPECIAL_MARKERS:
+            found = False
+            for name, qid in (names or []):
+                try:
+                    if ast.literal_eval(qid[0])[1] == speaker:
+                        found = True
+                        break
+                except (ValueError, SyntaxError, IndexError, TypeError):
+                    continue
+            if not found:
+                return None
+
+    trie = create_trie(names)
+    full_text = re.sub(r"\"+", "", f"{left} {TARGET_QUOTE_TOKEN} {right}")
+
+    try:
+        masked_text, entities = find_entities(full_text, trie)
+    except Exception:
+        return None
+
+    if include_speaker:
+        targets, ambiguous = get_targets(entities, speaker)
+        return Row(
+            articleUID=x.articleUID, articleOffset=x.articleOffset, speaker=speaker,
+            quotation=x.quotation, full_text=full_text, masked_text=masked_text,
+            entities=entities, targets=targets, ambiguous=ambiguous,
+            domain=getattr(x, "domain", ""), pattern=getattr(x, "pattern", ""),
+        )
+    return Row(
+        articleUID=x.articleUID, articleOffset=x.articleOffset,
+        quotation=x.quotation, full_text=full_text, masked_text=masked_text, entities=entities,
+    )
 
 
 def transform(x):
-    """Transform quote row by extracting entities (with speaker labels)."""
-    try:
-        speaker, names = x.speaker, x.names
-        left_context, right_context = x.leftContext, x.rightContext
-    except AttributeError:
-        return None
-
-    if not check_speaker_in_entities(speaker, names):
-        return None
-
-    trie = create_trie(names)
-    full_text = re.sub(
-        r"\"+", "", f"{left_context} {TARGET_QUOTE_TOKEN} {right_context}"
-    )
-
-    try:
-        masked_text, entities = find_entities(full_text, trie)
-    except Exception:
-        return None
-
-    targets, ambiguous = get_targets(entities, speaker)
-
-    return Row(
-        articleUID=x.articleUID,
-        articleOffset=x.articleOffset,
-        speaker=speaker,
-        quotation=x.quotation,
-        full_text=full_text,
-        masked_text=masked_text,
-        entities=entities,
-        targets=targets,
-        ambiguous=ambiguous,
-        domain=getattr(x, "domain", ""),
-        pattern=getattr(x, "pattern", ""),
-    )
+    return _transform(x, include_speaker=True)
 
 
 def transform_test(x):
-    """Transform quote row by extracting entities (without speaker labels)."""
-    try:
-        names = x.names
-        left_context, right_context = x.leftContext, x.rightContext
-    except AttributeError:
-        return None
-
-    trie = create_trie(names)
-    full_text = re.sub(
-        r"\"+", "", f"{left_context} {TARGET_QUOTE_TOKEN} {right_context}"
-    )
-
-    try:
-        masked_text, entities = find_entities(full_text, trie)
-    except Exception:
-        return None
-
-    return Row(
-        articleUID=x.articleUID,
-        articleOffset=x.articleOffset,
-        quotation=x.quotation,
-        full_text=full_text,
-        masked_text=masked_text,
-        entities=entities,
-    )
+    return _transform(x, include_speaker=False)
 
 
 @F.udf(returnType=BooleanType())
-def is_all_lower(masked_text):
+def is_all_lower(text):
     """Check if text (excluding special tokens) is all lowercase."""
-    if masked_text is None:
+    if text is None:
         return True
-    text = re.sub(r"(\[MASK\]|\[QUOTE\]|\[TARGET_QUOTE\])", "", masked_text)
-    return text == text.lower()
+    t = re.sub(r"(\[MASK\]|\[QUOTE\]|\[TARGET_QUOTE\])", "", text)
+    return t == t.lower()
 
 
-def extract_entities(
-    spark,
-    *,
-    merged_path,
-    speakers_path,
-    output_path,
-    nb_partition,
-    compression="gzip",
-    ftype="parquet",
-    kind="train",
-):
+def extract_entities(spark, *, merged_path, speakers_path, output_path,
+                     nb_partition, compression="gzip", ftype="parquet", kind="train"):
     """Main pipeline: read data, extract entities, write parquet."""
-    logger.info(
-        f"Starting entity extraction: kind={kind}, input={merged_path}"
-    )
+    logger.info(f"Starting entity extraction: kind={kind}, input={merged_path}")
 
-    df = (
-        spark.read.parquet(merged_path)
-        if ftype == "parquet"
-        else spark.read.json(merged_path).repartition(nb_partition)
-    )
+    df = (spark.read.parquet(merged_path) if ftype == "parquet"
+          else spark.read.json(merged_path).repartition(nb_partition))
     df = df.dropna(subset=["quotation"])
-    speakers = spark.read.json(speakers_path)
-    joined = df.join(speakers, on="articleUID")
+    joined = df.join(spark.read.json(speakers_path), on="articleUID")
 
     transform_fn = transform if kind == "train" else transform_test
-    transformed = (
-        joined.rdd.map(transform_fn)
-        .filter(lambda x: x is not None)
-        .toDF()
-        .withColumn("nb_entities", F.size("entities"))
-        .filter("nb_entities > 0")
-    )
+    transformed = (joined.rdd.map(transform_fn).filter(lambda x: x is not None)
+                   .toDF().withColumn("nb_entities", F.size("entities")).filter("nb_entities > 0"))
     if kind == "train":
         transformed = transformed.withColumn("nb_targets", F.size("targets"))
 
-    transformed.write.parquet(
-        output_path, "overwrite", compression=compression
-    )
+    transformed.write.parquet(output_path, "overwrite", compression=compression)
     logger.info(f"Entity extraction complete: output={output_path}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Extract named entities from quote contexts"
-    )
-    parser.add_argument(
-        "-m",
-        "--merged",
-        required=True,
-        help="Path to merged quotes (.parquet/.json)",
-    )
-    parser.add_argument(
-        "-s",
-        "--speakers",
-        required=True,
-        help="Path to speakers folder (.json)",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        required=True,
-        help="Output path for transformed data",
-    )
-    parser.add_argument(
-        "--kind", required=True, choices=["train", "test"], help="Data type"
-    )
-    parser.add_argument(
-        "-l", "--local", action="store_true", help="Run locally"
-    )
-    parser.add_argument(
-        "-n",
-        "--nb_partition",
-        type=int,
-        default=200,
-        help="Number of partitions",
-    )
-    parser.add_argument(
-        "--compression", default="gzip", help="Compression algorithm"
-    )
-    parser.add_argument(
-        "--ftype",
-        default="parquet",
-        choices=["parquet", "json"],
-        help="Input file type",
-    )
+    parser = argparse.ArgumentParser(description="Extract named entities from quote contexts")
+    parser.add_argument("-m", "--merged", required=True, help="Path to merged quotes")
+    parser.add_argument("-s", "--speakers", required=True, help="Path to speakers folder")
+    parser.add_argument("-o", "--output", required=True, help="Output path")
+    parser.add_argument("--kind", required=True, choices=["train", "test"], help="Data type")
+    parser.add_argument("-l", "--local", action="store_true", help="Run locally")
+    parser.add_argument("-n", "--nb_partition", type=int, default=200, help="Number of partitions")
+    parser.add_argument("--compression", default="gzip", help="Compression algorithm")
+    parser.add_argument("--ftype", default="parquet", choices=["parquet", "json"], help="Input type")
     args = parser.parse_args()
 
     if args.local:
-        spark = (
-            SparkSession.builder.master("local[24]")
-            .appName("EntityExtractorLocal")
-            .config("spark.driver.memory", "16g")
-            .config("spark.executor.memory", "32g")
-            .getOrCreate()
-        )
+        spark = (SparkSession.builder.master("local[24]").appName("EntityExtractorLocal")
+                 .config("spark.driver.memory", "16g").config("spark.executor.memory", "32g").getOrCreate())
     else:
         spark = SparkSession.builder.appName("EntityExtractor").getOrCreate()
 
-    extract_entities(
-        spark,
-        merged_path=args.merged,
-        speakers_path=args.speakers,
-        output_path=args.output,
-        nb_partition=args.nb_partition,
-        compression=args.compression,
-        ftype=args.ftype,
-        kind=args.kind,
-    )
+    extract_entities(spark, merged_path=args.merged, speakers_path=args.speakers,
+                     output_path=args.output, nb_partition=args.nb_partition,
+                     compression=args.compression, ftype=args.ftype, kind=args.kind)
