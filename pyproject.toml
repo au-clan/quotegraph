@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "jdk4py>=21.0.8.0",
     "pyarrow>=22.0.0",
+    "pygtrie>=2.5.0",
     "pyspark>=3.5.7",
     "tld>=0.13.1",
     "tqdm>=4.67.1",
