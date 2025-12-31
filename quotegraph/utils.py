@@ -1,6 +1,8 @@
 import pyspark
 import pyspark.sql.functions as F
 import pyspark.sql.types as T
+import pickle
+import orjson as json
 
 from pyspark.sql import SparkSession
 from tld import get_fld, get_tld
@@ -38,3 +40,31 @@ def date(quoteID: str) -> str:
 @F.udf(T.StringType())
 def year(quoteID: str) -> str:
     return quoteID[:4]
+
+
+def save_pickle(obj, path):
+    with open(path, "wb") as f:
+        pickle.dump(obj, f)
+
+
+def load_pickle(path):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+
+
+@F.udf(T.ArrayType(T.StringType()))
+def get_alias_list(aliases: str | None) -> list:
+    if aliases is None:
+        return []
+
+    aliases = json.loads(aliases)
+    return [alias['value'] for alias in aliases if alias['language'] == 'en']
+
+
+@F.udf(T.StringType())
+def get_label(labels: str|None) -> str:
+    if labels is None:
+        return ""
+
+    return json.loads(labels)['value']
