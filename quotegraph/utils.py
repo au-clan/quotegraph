@@ -28,3 +28,13 @@ def start_spark(
 def extract_outlet_domain(url: str) -> str:
     domain = get_fld(url)
     return domain
+
+
+@F.udf(T.StringType())
+def date(quoteID: str) -> str:
+    return quoteID[:10]
+
+
+@F.udf(T.StringType())
+def year(quoteID: str) -> str:
+    return quoteID[:4]
