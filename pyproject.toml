@@ -12,6 +12,7 @@ dependencies = [
     "pyspark>=3.5.7",
     "tld>=0.13.1",
     "tqdm>=4.67.1",
+    "ujson>=5.11.0",
 ]
 
 
