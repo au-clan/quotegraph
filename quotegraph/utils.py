@@ -2,7 +2,7 @@ import pyspark
 import pyspark.sql.functions as F
 import pyspark.sql.types as T
 import pickle
-import orjson as json
+import ujson as json
 
 from pyspark.sql import SparkSession
 from tld import get_fld, get_tld
@@ -52,6 +52,14 @@ def load_pickle(path):
     with open(path, "rb") as f:
         return pickle.load(f)
 
+
+def save_json(obj, path):
+    with open(path, "w") as f:
+        json.dump(obj, f)
+
+def load_json(path):
+    with open(path, "r") as f:
+        return json.load(f)
 
 
 @F.udf(T.ArrayType(T.StringType()))
@@ -201,10 +209,22 @@ def phase_d_aliases(aliases: list) -> list:
         aliases.append(alias)
     return aliases
 
+
 @F.udf(T.ArrayType(T.StringType()))
 def phase_e_aliases(aliases: list) -> list:
-    aliases = []
-    for alias in aliases:
-        alias = ''.join(c if ord(c) < 128 else '?' for c in alias)
-        aliases.append(alias)
     return aliases
+
+PHASE_ALIASES_MAPPING = {
+    'A': phase_a_aliases,
+    'B': phase_b_aliases,
+    'C': phase_c_aliases,
+    'D': phase_d_aliases,
+    'E': phase_e_aliases,
+}
+
+@F.udf(T.ArrayType(T.StringType()))
+def fit_aliases_to_phase(phase, aliases: list) -> list:
+    return PHASE_ALIASES_MAPPING[phase](aliases)
+
+
+
