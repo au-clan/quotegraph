@@ -1,0 +1,121 @@
+[
+  {
+    "id": "quote_001",
+    "quotation": "Together with Frans Timmermans, we are committed to reducing carbon emissions by 50% by 2030.",
+    "context": "At the annual climate summit held in Geneva, world leaders gathered to discuss urgent measures to combat global warming. The President of the European Commission addressed the assembly on Tuesday morning. Ursula von der Leyen declared: \"Together with Frans Timmermans, we are committed to reducing carbon emissions by 50% by 2030.\" She received applause from delegates. Frans Timmermans, Executive Vice-President for the European Green Deal, stood beside Ursula von der Leyen during the announcement.",
+    "speaker": {
+      "name": "Ursula von der Leyen",
+      "wikidata_id": "Q76942",
+      "description": "President of the European Commission since 2019"
+    },
+    "mentions": [
+      {
+        "id": "mention_001_1",
+        "name": "Frans Timmermans",
+        "wikidata_id": "Q32100",
+        "description": "Dutch politician and European Commissioner"
+      }
+    ],
+    "source": "Climate Daily News, 2024-03-15"
+  },
+  {
+    "id": "quote_002",
+    "quotation": "This discovery, as James Chen and I have documented, will revolutionize how we understand early human migration patterns.",
+    "context": "A team of archaeologists from Oxford University announced a groundbreaking discovery in northern Kenya. Professor Sarah Mitchell, leading the expedition, presented the findings at a press conference. Sarah Mitchell explained: \"This discovery, as James Chen and I have documented, will revolutionize how we understand early human migration patterns.\" Dr. James Chen, a co-author of the study, added that further analysis is ongoing. The research was funded by a grant secured by Dr. Emily Watson.",
+    "speaker": {
+      "name": "Sarah Mitchell",
+      "wikidata_id": "Q12345678",
+      "description": "British archaeologist and professor at Oxford University"
+    },
+    "mentions": [
+      {
+        "id": "mention_002_1",
+        "name": "James Chen",
+        "wikidata_id": "Q98765432",
+        "description": "Paleontologist and researcher at Cambridge University"
+      },
+      {
+        "id": "mention_002_2",
+        "name": "Emily Watson",
+        "wikidata_id": "Q87654321",
+        "description": "Grant administrator at Oxford University"
+      }
+    ],
+    "source": "Science Weekly, 2024-02-20"
+  },
+  {
+    "id": "quote_003",
+    "quotation": "As Tim Cook and I discussed, the merger will create over 10,000 new jobs in the technology sector.",
+    "context": "Tech giants announced a major merger yesterday that sent shockwaves through the industry. Tim Cook, CEO of Apple, and Satya Nadella of Microsoft held a joint press conference. Satya Nadella told reporters: \"As Tim Cook and I discussed, the merger will create over 10,000 new jobs in the technology sector.\" The deal, valued at $50 billion, is expected to close by the end of the year. Sundar Pichai of Google commented that the merger would reshape the competitive landscape.",
+    "speaker": {
+      "name": "Satya Nadella",
+      "wikidata_id": "Q528785",
+      "description": "CEO of Microsoft since 2014"
+    },
+    "mentions": [
+      {
+        "id": "mention_003_1",
+        "name": "Tim Cook",
+        "wikidata_id": "Q265567",
+        "description": "CEO of Apple Inc. since 2011"
+      },
+      {
+        "id": "mention_003_2",
+        "name": "Sundar Pichai",
+        "wikidata_id": "Q4916608",
+        "description": "CEO of Alphabet Inc. and Google"
+      }
+    ],
+    "source": "Business Times, 2024-01-10"
+  },
+  {
+    "id": "quote_004",
+    "quotation": "I want to thank Juan Carlos Ferrero and Rafael Nadal for believing in me when no one else did.",
+    "context": "After a stunning victory at Wimbledon, the young tennis star addressed the crowd. Carlos Alcaraz held the trophy high as fans cheered. Carlos Alcaraz said, visibly emotional: \"I want to thank Juan Carlos Ferrero and Rafael Nadal for believing in me when no one else did.\" His coach, Juan Carlos Ferrero, watched proudly from the stands alongside Rafael Nadal, who had mentored the young champion.",
+    "speaker": {
+      "name": "Carlos Alcaraz",
+      "wikidata_id": "Q17553520",
+      "description": "Spanish professional tennis player"
+    },
+    "mentions": [
+      {
+        "id": "mention_004_1",
+        "name": "Juan Carlos Ferrero",
+        "wikidata_id": "Q311459",
+        "description": "Spanish former tennis player and coach"
+      },
+      {
+        "id": "mention_004_2",
+        "name": "Rafael Nadal",
+        "wikidata_id": "Q10132",
+        "description": "Spanish professional tennis player"
+      }
+    ],
+    "source": "Sports Illustrated, 2024-07-14"
+  },
+  {
+    "id": "quote_005",
+    "quotation": "Despite what Alvin Bragg claims, the evidence clearly shows that the defendant was not present at the scene.",
+    "context": "The high-profile trial continued in Manhattan yesterday. Defense attorney Gloria Allred presented new evidence to the jury. Gloria Allred argued: \"Despite what Alvin Bragg claims, the evidence clearly shows that the defendant was not present at the scene.\" The prosecution, led by District Attorney Alvin Bragg, contested this claim. Judge Juan Merchan will issue a ruling on the admissibility of the new evidence tomorrow.",
+    "speaker": {
+      "name": "Gloria Allred",
+      "wikidata_id": "Q1193368",
+      "description": "American attorney and women's rights advocate"
+    },
+    "mentions": [
+      {
+        "id": "mention_005_1",
+        "name": "Alvin Bragg",
+        "wikidata_id": "Q104819572",
+        "description": "American lawyer and District Attorney of Manhattan"
+      },
+      {
+        "id": "mention_005_2",
+        "name": "Juan Merchan",
+        "wikidata_id": "Q113546230",
+        "description": "American judge in New York State Supreme Court"
+      }
+    ],
+    "source": "Legal Tribune, 2024-04-22"
+  }
+]
