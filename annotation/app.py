@@ -8,6 +8,9 @@ and Wikidata entity linking in news articles.
 import streamlit as st
 import json
 import re
+import sys
+import time
+import uuid
 from pathlib import Path
 from datetime import datetime
 
@@ -20,6 +23,19 @@ ANNOTATIONS_DIR = DATA_DIR / "annotations"
 COLOR_QUOTATION = "#FFEB3B"  # Yellow for quotation
 COLOR_SPEAKER = "#81D4FA"    # Light blue for speaker mentions
 COLOR_MENTION = "#C8E6C9"    # Light green for person mentions
+
+# Test mode: enable with --test flag
+# Usage: streamlit run app.py -- --test
+TEST_MODE = "--test" in sys.argv
+
+
+def format_duration(seconds: float) -> str:
+    """Format a duration in seconds to a human-readable string."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes = int(seconds // 60)
+    return f"{minutes}m {seconds % 60:.0f}s"
+
 
 def load_input_data():
     """Load the input JSON file containing quotations to annotate."""
@@ -365,15 +381,22 @@ def main():
     # Sidebar for annotator info and navigation
     with st.sidebar:
         st.header("Annotator Settings")
+
+        # Generate an ID on first visit so the annotator can start immediately
+        if "annotator_id" not in st.session_state:
+            st.session_state.annotator_id = uuid.uuid4().hex[:8]
+
         annotator_id = st.text_input(
             "Annotator ID",
-            value=st.session_state.get("annotator_id", ""),
+            value=st.session_state.annotator_id,
             placeholder="Enter your annotator ID"
         )
 
         if annotator_id:
             st.session_state.annotator_id = annotator_id
             st.success(f"Logged in as: {annotator_id}")
+            if TEST_MODE:
+                st.info("⏱ Test mode active")
         else:
             st.warning("Please enter your annotator ID to begin.")
             st.stop()
@@ -444,10 +467,31 @@ def main():
                 use_container_width=True
             )
 
+        if TEST_MODE:
+            st.divider()
+            st.header("Timing")
+            durations = st.session_state.get("batch_durations", {})
+            if durations:
+                for idx, dur in sorted(durations.items(), key=lambda x: int(x[0])):
+                    st.write(f"Item {int(idx) + 1}: {format_duration(dur)}")
+                avg = sum(durations.values()) / len(durations)
+                st.write(f"**Average: {format_duration(avg)}**")
+            else:
+                st.write("No items timed yet.")
+
     # Main content area
     current_item = data[selected_item]
     item_id = str(selected_item)
     existing_annotation = annotations.get(item_id, {})
+
+    # Test mode: record when the annotator first views each item
+    if TEST_MODE:
+        if "batch_start_times" not in st.session_state:
+            st.session_state.batch_start_times = {}
+        if "batch_durations" not in st.session_state:
+            st.session_state.batch_durations = {}
+        if item_id not in st.session_state.batch_start_times:
+            st.session_state.batch_start_times[item_id] = time.time()
 
     # Display item header
     st.markdown(f"### Item {selected_item + 1} of {len(data)}")
@@ -461,6 +505,10 @@ def main():
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         if st.button("Save Annotation", type="primary", use_container_width=True):
+            if TEST_MODE:
+                start = st.session_state.get("batch_start_times", {}).get(item_id)
+                if start is not None:
+                    st.session_state.batch_durations[item_id] = time.time() - start
             annotations[item_id] = new_annotation
             save_annotations(annotator_id, annotations)
             st.success("Annotation saved!")
