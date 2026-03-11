@@ -3,22 +3,23 @@ import pyspark.sql.functions as F
 import pyspark.sql.types as T
 import pickle
 import ujson as json
+import ast
 
 from pyspark.sql import SparkSession
 from tld import get_fld, get_tld
 
 
 def start_spark(
-    config=None, appName="quotegraph", n_threads=24, driver_memory="120g"
+    config=None, appName="quotegraph", n_threads=24, driver_memory="80g"
 ) -> pyspark.sql.SparkSession:
     spark = (
         pyspark.sql.SparkSession.builder.master(f"local[{n_threads}]")
         .appName(appName)
         .config("spark.driver.memory", driver_memory)
-        .config("spark.executor.memory", "100g")
+        .config("spark.executor.memory", "80g")
         .config("spark.sql.execution.arrow.pyspark.enabled", "true")
-        .config("spark.local.dir", "/dlabdata1/culjak/tmp")
-        .config("spark.maxResultSize", "100g")
+        .config("spark.driver.maxResultSize", "80g")
+        .config("spark.executor.maxResultSize", "80g")
     )
     if config is not None:
         for k, v in config:
@@ -26,12 +27,18 @@ def start_spark(
 
     return spark.getOrCreate()
 
-
 @F.udf(T.StringType())
 def extract_outlet_domain(url: str) -> str:
-    domain = get_fld(url)
+    try:
+        domain = get_fld(url)
+    except Exception as e:
+        print(f"Error extracting domain from {url}: {e}")
+        return None
     return domain
 
+@F.udf(T.IntegerType())
+def n_domains(urls: list) -> int:
+    return len(set(extract_outlet_domain(url) for url in urls))
 
 @F.udf(T.StringType())
 def date(quoteID: str) -> str:
@@ -227,4 +234,65 @@ def fit_aliases_to_phase(phase, aliases: list) -> list:
     return PHASE_ALIASES_MAPPING[phase](aliases)
 
 
+@F.udf(T.StringType())
+def gender(gender_list: list) -> str:
+    if len(gender_list) == 0:
+        return None
+    if len(gender_list) > 1:
+        return 'Other'
+    if gender_list[0] == 'Q6581097':
+        return 'Male'
+    if gender_list[0] == 'Q6581072':
+        return 'Female'
+    return 'Other'
 
+@F.udf(T.ArrayType(T.IntegerType()))
+def get_ends(content, quotations):
+    content = content.split(' ')
+    ends = []
+    for quotation in quotations:
+        quotation_start = quotation.quotationOffset
+        start_qm_pos = quotation_start - 1
+        if '``' in content[start_qm_pos]:
+            bq = False
+        elif content[start_qm_pos] == '<blockquote>':
+            bq = True
+        else:
+            ends.append(-1)
+            continue
+
+        end_qm_pos = start_qm_pos + 1
+        for i in range(start_qm_pos + 1, len(content)):
+            if content[i] == "''" or (bq and content == '</blockquote>'):
+                end_qm_pos = i
+                break
+        if content[end_qm_pos] == "''":
+            ends.append(end_qm_pos)
+        else:
+            ends.append(-1)
+    return ends
+
+def get_ends_dict(content, quotations):
+    content = content.split(' ')
+    ends = []
+    for quotation in quotations:
+        quotation_start = quotation['quotationOffset']
+        start_qm_pos = quotation_start - 1
+        if '``' in content[start_qm_pos]:
+            bq = False
+        elif content[start_qm_pos] == '<blockquote>':
+            bq = True
+        else:
+            ends.append(-1)
+            continue
+
+        end_qm_pos = start_qm_pos + 1
+        for i in range(start_qm_pos + 1, len(content)):
+            if content[i] == "''" or (bq and content == '</blockquote>'):
+                end_qm_pos = i
+                break
+        if content[end_qm_pos] == "''":
+            ends.append(end_qm_pos)
+        else:
+            ends.append(-1)
+    return ends
