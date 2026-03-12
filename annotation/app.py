@@ -370,7 +370,7 @@ def main():
             for i, item in enumerate(data)
         ]
         selected = st.selectbox("Select item", options=range(len(data)),
-                                format_func=lambda x: item_options[x], index=current_index)
+                                format_func=lambda x: item_options[x], index=current_index) or 0
         st.session_state.current_index = selected
 
         col1, col2 = st.columns(2)
