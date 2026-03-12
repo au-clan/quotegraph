@@ -363,7 +363,7 @@ def main():
 
         st.divider()
         st.header("Navigation")
-        current_index = st.session_state.get("current_index", 0)
+        current_index = min(st.session_state.get("current_index", 0), len(data) - 1)
         item_options = [
             f"Item {i+1}: {item['title'][:35] or item['article_id']}" +
             (" ✓" if is_annotation_complete(annotations.get(str(i), {}), item) else "")
