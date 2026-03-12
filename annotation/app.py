@@ -1,12 +1,11 @@
 """
 Quotation Verification Annotation Interface
-
-A Streamlit-based tool for verifying quotation extraction, attribution,
-and Wikidata entity linking in news articles.
 """
 
 import streamlit as st
 import json
+import ast
+import html
 import re
 import sys
 import time
@@ -15,383 +14,329 @@ from pathlib import Path
 from datetime import datetime
 
 # Configuration
+TEST_BATCH_FILE = Path("/home/mculjak/jadranka/test_batch.json")
 DATA_DIR = Path("data")
-INPUT_FILE = DATA_DIR / "input_data.json"
 ANNOTATIONS_DIR = DATA_DIR / "annotations"
 
 # Color scheme
-COLOR_QUOTATION = "#FFEB3B"  # Yellow for quotation
-COLOR_SPEAKER = "#81D4FA"    # Light blue for speaker mentions
-COLOR_MENTION = "#C8E6C9"    # Light green for person mentions
+COLOR_QUOTATION = "#FFEB3B"
+COLOR_SPEAKER   = "#81D4FA"
+COLOR_TARGET    = "#CE93D8"
+COLOR_MENTION   = "#C8E6C9"
 
-# Test mode: enable with --test flag
-# Usage: streamlit run app.py -- --test
 TEST_MODE = "--test" in sys.argv
 
 
-def format_duration(seconds: float) -> str:
-    """Format a duration in seconds to a human-readable string."""
+def format_duration(seconds):
     if seconds < 60:
         return f"{seconds:.1f}s"
-    minutes = int(seconds // 60)
-    return f"{minutes}m {seconds % 60:.0f}s"
+    return f"{int(seconds // 60)}m {seconds % 60:.0f}s"
 
 
-def load_input_data():
-    """Load the input JSON file containing quotations to annotate."""
-    if not INPUT_FILE.exists():
-        st.error(f"Input file not found: {INPUT_FILE}")
-        st.info("Please create an input_data.json file in the data/ directory.")
-        return []
-
-    with open(INPUT_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def load_annotations(annotator_id: str) -> dict:
-    """Load existing annotations for a specific annotator."""
-    ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
-    annotation_file = ANNOTATIONS_DIR / f"annotations_{annotator_id}.json"
-
-    if annotation_file.exists():
-        with open(annotation_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_annotations(annotator_id: str, annotations: dict):
-    """Save annotations for a specific annotator."""
-    ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
-    annotation_file = ANNOTATIONS_DIR / f"annotations_{annotator_id}.json"
-
-    with open(annotation_file, "w", encoding="utf-8") as f:
-        json.dump(annotations, f, indent=2, ensure_ascii=False)
-
-def get_wikidata_url(qid: str) -> str:
-    """Generate Wikidata URL from QID."""
-    if qid and qid.startswith("Q"):
+def get_wikidata_url(qid):
+    if qid and str(qid).startswith("Q"):
         return f"https://www.wikidata.org/wiki/{qid}"
     return None
 
-def highlight_context(context: str, quotation: str, speaker_name: str, mentions: list) -> str:
-    """
-    Highlight the context with:
-    - Color 1 (yellow): quotation
-    - Color 2 (blue): speaker mentions
-    - Color 3 (green): person mentions (underlined in quotation)
-    """
-    if not context:
-        return context
 
-    result = context
+def load_and_transform():
+    """Load test_batch.json and return list of annotation items (one per article, first quotation only)."""
+    if not TEST_BATCH_FILE.exists():
+        st.error(f"Test batch file not found: {TEST_BATCH_FILE}")
+        return []
+    with open(TEST_BATCH_FILE, encoding="utf-8") as f:
+        articles = json.load(f)
 
-    # Prepare quotation with underlined mentions
-    quotation_with_underlined_mentions = quotation
-    for mention in mentions:
-        mention_name = mention.get("name", "")
-        if mention_name and mention_name in quotation_with_underlined_mentions:
-            quotation_with_underlined_mentions = quotation_with_underlined_mentions.replace(
-                mention_name,
-                f'<u style="text-decoration: underline; text-decoration-color: #333; text-underline-offset: 3px;">{mention_name}</u>'
-            )
+    items = []
+    for article in articles:
+        quotations = article.get("quotations") or []
+        if not quotations:
+            continue
+        quotation = quotations[0]
 
-    # Use regex to find the quotation in context, allowing for flexible punctuation
-    # Strip trailing punctuation from quotation for matching
-    quotation_base = quotation.rstrip('.,!?;:')
+        # Speaker QID: prefer edge.speaker.qid, fallback to globalProbas
+        speaker_edge = (quotation.get("edge") or {}).get("speaker") or {}
+        speaker_qid = speaker_edge.get("qid")
+        if not speaker_qid:
+            top_speaker = quotation.get("globalTopSpeaker")
+            for prob in quotation.get("globalProbas") or []:
+                if prob.get("speaker") == top_speaker and prob.get("qids"):
+                    speaker_qid = prob["qids"][0]
+                    break
 
-    # Pattern to match quoted text with flexible ending punctuation
-    # Matches: "quotation" or "quotation," or "quotation." etc.
-    pattern = re.compile(
-        r'"(' + re.escape(quotation_base) + r')[.,!?;:]*"',
-        re.IGNORECASE
-    )
+        target_edge = (quotation.get("edge") or {}).get("target") or {}
+        target_qid = target_edge.get("qid")
 
-    match = pattern.search(result)
-    if match:
-        # Replace the matched quotation with highlighted version
-        original = match.group(0)
-        highlighted = f'<mark style="background-color: {COLOR_QUOTATION}; padding: 2px 4px; border-radius: 3px;">"{quotation_with_underlined_mentions}"</mark>'
-        result = result.replace(original, highlighted, 1)
-    else:
-        # Fallback: try exact match without quotes
-        if quotation and quotation in result:
-            result = result.replace(
-                quotation,
-                f'<mark style="background-color: {COLOR_QUOTATION}; padding: 2px 4px; border-radius: 3px;">{quotation_with_underlined_mentions}</mark>',
-                1
-            )
+        # Classify names: speaker / target / other
+        names = article.get("names") or []
+        speaker_names, target_names, mention_names = [], [], []
+        for name in names:
+            try:
+                ids = ast.literal_eval(name.get("ids", "[]"))
+            except Exception:
+                ids = []
+            if speaker_qid and speaker_qid in ids:
+                speaker_names.append(name)
+            elif target_qid and target_qid in ids:
+                target_names.append(name)
+            else:
+                mention_names.append(name)
 
-    # Highlight speaker name mentions (outside of the already highlighted quotation)
-    if speaker_name:
-        # Use regex to find speaker name not inside already processed tags
-        pattern = re.compile(rf'(?<!</mark>)(?<!</span>)(?<!</u>)(?<!">)\b({re.escape(speaker_name)})\b(?!<)')
-        result = pattern.sub(
-            rf'<span style="background-color: {COLOR_SPEAKER}; padding: 2px 4px; border-radius: 3px;">\1</span>',
-            result
-        )
+        items.append({
+            "article_id": article.get("articleID", ""),
+            "title": article.get("title", ""),
+            "url": article.get("url", ""),
+            "detokenized_content": article.get("detokenized_content", ""),
+            "quotation": quotation.get("quotation", ""),
+            "char_start": quotation.get("charStart", -1),
+            "char_end": quotation.get("charEnd", -1),
+            "context_char_start": quotation.get("contextCharStart", -1),
+            "context_char_end": quotation.get("contextCharEnd", -1),
+            "speaker": {
+                "qid": speaker_qid,
+                "label": speaker_edge.get("wikidata_label") or quotation.get("globalTopSpeaker") or "Unknown",
+                "description": speaker_edge.get("wikidata_description", ""),
+            },
+            "target": {
+                "qid": target_qid,
+                "label": target_edge.get("wikidata_label", ""),
+                "description": target_edge.get("wikidata_description", ""),
+            },
+            "speaker_names": speaker_names,
+            "target_names": target_names,
+            "mention_names": mention_names,
+        })
+    return items
 
-    # Highlight person mentions in the context (outside quotation)
-    for mention in mentions:
-        mention_name = mention.get("name", "")
-        if mention_name:
-            # Find mentions not already inside tags
-            pattern = re.compile(rf'(?<!</mark>)(?<!</span>)(?<!</u>)(?<!">)\b({re.escape(mention_name)})\b(?!<)')
-            result = pattern.sub(
-                rf'<span style="background-color: {COLOR_MENTION}; padding: 2px 4px; border-radius: 3px;">\1</span>',
-                result
-            )
 
-    return result
+def build_highlighted_context(item):
+    """Build HTML for the context window using character offsets."""
+    text = item["detokenized_content"]
+    ctx_s = item["context_char_start"]
+    ctx_e = item["context_char_end"]
 
-def format_quotation_with_mentions(quotation: str, mentions: list) -> str:
-    """Underline mentions inside the quotation."""
-    if not quotation or not mentions:
-        return quotation
+    if ctx_s == -1 or ctx_e == -1 or not text:
+        return html.escape(item.get("quotation", ""))
 
-    result = quotation
-    for mention in mentions:
-        mention_name = mention.get("name", "")
-        if mention_name and mention_name in result:
-            result = result.replace(
-                mention_name,
-                f'<u style="text-decoration-color: #333;">{mention_name}</u>'
-            )
+    context = text[ctx_s:ctx_e]
+    n = len(context)
+    labels = [""] * n
 
-    return result
+    def mark(char_spans, label):
+        for s, e in char_spans:
+            for i in range(max(0, s - ctx_s), min(n, e - ctx_s)):
+                if not labels[i]:
+                    labels[i] = label
 
-def display_entity_with_wikidata(name: str, wikidata_id: str, description: str = None):
-    """Display an entity name with a link to its Wikidata page and description."""
-    url = get_wikidata_url(wikidata_id)
-    if url:
-        st.markdown(f"**{name}** ([{wikidata_id}]({url}))")
-        if description:
-            st.caption(f"_{description}_")
-    else:
-        st.markdown(f"**{name}** (No Wikidata ID)")
+    mark([(item["char_start"], item["char_end"])], "quote")
+    for nm in item["speaker_names"]:
+        mark(nm.get("char_offsets", []), "speaker")
+    for nm in item["target_names"]:
+        mark(nm.get("char_offsets", []), "target")
+    for nm in item["mention_names"]:
+        mark(nm.get("char_offsets", []), "mention")
 
-def render_annotation_form(item: dict, item_id: str, existing_annotation: dict):
-    """Render the annotation form for a single item."""
-
-    quotation = item.get("quotation", "")
-    context = item.get("context", "")
-    speaker = item.get("speaker", {})
-    speaker_name = speaker.get("name", "Unknown")
-    mentions = item.get("mentions", [])
-
-    # Two-column layout
-    col_data, col_questions = st.columns([1, 1], gap="large")
-
-    # LEFT COLUMN: Data
-    with col_data:
-        # Display the quotation with underlined mentions
-        st.markdown("**Quotation**")
-        formatted_quotation = format_quotation_with_mentions(quotation, mentions)
-        st.markdown(
-            f'<div style="font-size: 1.1em; color: #333; background-color: #fafafa; padding: 12px; border-left: 4px solid {COLOR_QUOTATION}; margin-bottom: 15px;">"{formatted_quotation}"</div>',
-            unsafe_allow_html=True
-        )
-
-        # Display the context with highlighted quotation and speaker
-        st.markdown("**Article Context**")
-        highlighted_context = highlight_context(context, quotation, speaker_name, mentions)
-        st.markdown(
-            f'<div style="font-size: 1em; color: #333; background-color: #fafafa; padding: 15px; border-radius: 5px; border: 1px solid #ddd; line-height: 1.6; max-height: 300px; overflow-y: auto;">{highlighted_context}</div>',
-            unsafe_allow_html=True
-        )
-
-        # Legend
-        st.markdown(
-            f'''<div style="font-size: 0.85em; color: #666; margin: 8px 0;">
-            <span style="background-color: {COLOR_QUOTATION}; padding: 2px 5px; border-radius: 3px; margin-right: 10px;">Quotation</span>
-            <span style="background-color: {COLOR_SPEAKER}; padding: 2px 5px; border-radius: 3px; margin-right: 10px;">Speaker</span>
-            <span style="background-color: {COLOR_MENTION}; padding: 2px 5px; border-radius: 3px; margin-right: 10px;">Mention</span>
-            <span style="text-decoration: underline;">In quote</span>
-            </div>''',
-            unsafe_allow_html=True
-        )
-
-        # Display the speaker
-        st.markdown("**Attributed Speaker**")
-        speaker_url = get_wikidata_url(speaker.get("wikidata_id", ""))
-        if speaker_url:
-            st.markdown(f"{speaker_name} ([{speaker.get('wikidata_id')}]({speaker_url}))")
+    COLOR_MAP = {"quote": COLOR_QUOTATION, "speaker": COLOR_SPEAKER,
+                 "target": COLOR_TARGET, "mention": COLOR_MENTION}
+    parts = []
+    i = 0
+    while i < n:
+        label = labels[i]
+        j = i + 1
+        while j < n and labels[j] == label:
+            j += 1
+        chunk = html.escape(context[i:j])
+        if label:
+            c = COLOR_MAP[label]
+            parts.append(f'<span style="background-color:{c};padding:1px 2px;border-radius:2px;">{chunk}</span>')
         else:
-            st.markdown(f"{speaker_name}")
+            parts.append(chunk)
+        i = j
+    return "".join(parts)
 
-        # Display mentioned persons
-        if mentions:
-            st.markdown("**Mentioned Persons**")
-            for mention in mentions:
-                mention_url = get_wikidata_url(mention.get("wikidata_id", ""))
-                if mention_url:
-                    st.markdown(f"- {mention.get('name')} ([{mention.get('wikidata_id')}]({mention_url}))")
-                else:
-                    st.markdown(f"- {mention.get('name')}")
 
-    # RIGHT COLUMN: Questions
-    with col_questions:
+def load_annotations(annotator_id):
+    ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    path = ANNOTATIONS_DIR / f"annotations_{annotator_id}.json"
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def save_annotations(annotator_id, annotations):
+    ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    path = ANNOTATIONS_DIR / f"annotations_{annotator_id}.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(annotations, f, indent=2, ensure_ascii=False)
+
+
+def render_annotation_form(item, item_id, existing):
+    col_data, col_q = st.columns([1, 1], gap="large")
+
+    with col_data:
+        st.markdown("**Quotation**")
+        st.markdown(
+            f'<div style="font-size:1.1em;background:#fafafa;padding:12px;'
+            f'border-left:4px solid {COLOR_QUOTATION};margin-bottom:12px;">'
+            f'"{html.escape(item["quotation"])}"</div>',
+            unsafe_allow_html=True
+        )
+
+        st.markdown("**Article Context**")
+        st.markdown(
+            f'<div style="font-size:1em;background:#fafafa;padding:15px;border-radius:5px;'
+            f'border:1px solid #ddd;line-height:1.7;max-height:340px;overflow-y:auto;">'
+            f'{build_highlighted_context(item)}</div>',
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            f'<div style="font-size:0.85em;color:#666;margin:6px 0;">'
+            f'<span style="background:{COLOR_QUOTATION};padding:2px 5px;border-radius:3px;margin-right:8px;">Quotation</span>'
+            f'<span style="background:{COLOR_SPEAKER};padding:2px 5px;border-radius:3px;margin-right:8px;">Speaker</span>'
+            f'<span style="background:{COLOR_TARGET};padding:2px 5px;border-radius:3px;margin-right:8px;">Target</span>'
+            f'<span style="background:{COLOR_MENTION};padding:2px 5px;border-radius:3px;">Other mentions</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # Speaker info
+        speaker = item["speaker"]
+        speaker_url = get_wikidata_url(speaker["qid"])
+        st.markdown("**Speaker**")
+        if speaker_url:
+            st.markdown(f"{speaker['label']} ([{speaker['qid']}]({speaker_url}))")
+        else:
+            st.markdown(speaker["label"])
+        if speaker["description"]:
+            st.caption(f"_{speaker['description']}_")
+
+        # Target info
+        target = item["target"]
+        if target["label"]:
+            target_url = get_wikidata_url(target["qid"])
+            st.markdown("**Target**")
+            if target_url:
+                st.markdown(f"{target['label']} ([{target['qid']}]({target_url}))")
+            else:
+                st.markdown(target["label"])
+            if target["description"]:
+                st.caption(f"_{target['description']}_")
+
+        # All identified persons
+        all_names = item["speaker_names"] + item["target_names"] + item["mention_names"]
+        if all_names:
+            st.markdown("**Identified Persons**")
+            for nm in all_names:
+                try:
+                    ids = ast.literal_eval(nm.get("ids", "[]"))
+                except Exception:
+                    ids = []
+                qid = ids[0] if ids else None
+                url = get_wikidata_url(qid)
+                label = f"{nm['name']} ([{qid}]({url}))" if url else nm["name"]
+                st.markdown(f"- {label}")
+
+    with col_q:
         st.markdown("**Annotation Questions**")
 
-        # Q1: Speaker attribution
+        # Q1
         st.markdown("**Q1:** Is the provided quotation attributed to the correct speaker?")
-        q1_options = ["Select...", "Yes", "No", "Cannot determine"]
-        q1_default = q1_options.index(existing_annotation.get("q1", "Select...")) if existing_annotation.get("q1") in q1_options else 0
-        q1_answer = st.radio(
-            "Q1",
-            options=q1_options,
-            index=q1_default,
-            key=f"q1_{item_id}",
-            horizontal=True,
-            label_visibility="collapsed"
-        )
+        q1_opts = ["Select...", "Yes", "No", "Cannot determine"]
+        q1_default = q1_opts.index(existing.get("q1", "Select...")) if existing.get("q1") in q1_opts else 0
+        q1 = st.radio("Q1", q1_opts, index=q1_default, key=f"q1_{item_id}", horizontal=True, label_visibility="collapsed")
 
-        # Q2: Speaker Wikidata linking (only if Q1 is Yes)
-        q2_answer = None
-        if q1_answer == "Yes":
-            st.markdown("**Q2:** Is the speaker correctly linked to its corresponding Wikidata item based on the information provided in the article context?")
-            speaker_wikidata_id = speaker.get("wikidata_id", "")
-            speaker_description = speaker.get("description", "No description available")
-            speaker_url = get_wikidata_url(speaker_wikidata_id)
-
+        # Q2 (only if Q1 = Yes)
+        q2 = None
+        if q1 == "Yes":
+            st.markdown("**Q2:** Is the speaker correctly linked to its corresponding Wikidata item?")
             if speaker_url:
                 st.markdown(
-                    f'<div style="font-size: 0.95em; color: #333; background-color: #f0f7ff; padding: 8px; border-radius: 4px; margin: 5px 0;">'
-                    f'<strong>{speaker_name}</strong> → <a href="{speaker_url}" target="_blank">{speaker_wikidata_id}</a><br/>'
-                    f'<em style="color: #666;">{speaker_description}</em></div>',
+                    f'<div style="font-size:0.95em;background:#f0f7ff;padding:8px;border-radius:4px;margin:5px 0;">'
+                    f'<strong>{html.escape(speaker["label"])}</strong> → '
+                    f'<a href="{speaker_url}" target="_blank">{speaker["qid"]}</a><br/>'
+                    f'<em style="color:#666;">{html.escape(speaker["description"])}</em></div>',
                     unsafe_allow_html=True
                 )
+            q2_opts = ["Select...", "Yes", "No", "Cannot determine"]
+            q2_default = q2_opts.index(existing.get("q2", "Select...")) if existing.get("q2") in q2_opts else 0
+            q2 = st.radio("Q2", q2_opts, index=q2_default, key=f"q2_{item_id}", horizontal=True, label_visibility="collapsed")
 
-            q2_options = ["Select...", "Yes", "No", "Cannot determine"]
-            q2_default = q2_options.index(existing_annotation.get("q2", "Select...")) if existing_annotation.get("q2") in q2_options else 0
-            q2_answer = st.radio(
-                "Q2",
-                options=q2_options,
-                index=q2_default,
-                key=f"q2_{item_id}",
-                horizontal=True,
-                label_visibility="collapsed"
-            )
-
-        # Q3 and Q4: Only if there are mentions
-        q3_answers = {}
-        q4_answers = {}
-
+        # Q3 & Q4 — all non-speaker names
+        q3, q4 = {}, {}
+        mentions = item["target_names"] + item["mention_names"]
         if mentions:
             st.markdown("**Q3:** Do the listed mentions refer to people and not other objects, organizations or locations?")
-            for i, mention in enumerate(mentions):
-                mention_name = mention.get("name", f"Mention {i+1}")
-                mention_id = mention.get("id", str(i))
-
-                q3_options = ["Select...", "Yes", "No", "Cannot determine"]
-                q3_key = f"q3_{item_id}_{mention_id}"
-                existing_q3 = existing_annotation.get("q3", {}).get(mention_id, "Select...")
-                q3_default = q3_options.index(existing_q3) if existing_q3 in q3_options else 0
-
-                q3_answers[mention_id] = st.radio(
-                    f"'{mention_name}'",
-                    options=q3_options,
-                    index=q3_default,
-                    key=q3_key,
-                    horizontal=True
-                )
+            for nm in mentions:
+                mid = nm["name"]
+                q3_opts = ["Select...", "Yes", "No", "Cannot determine"]
+                existing_q3 = existing.get("q3", {}).get(mid, "Select...")
+                q3_default = q3_opts.index(existing_q3) if existing_q3 in q3_opts else 0
+                q3[mid] = st.radio(f"'{mid}'", q3_opts, index=q3_default, key=f"q3_{item_id}_{mid}", horizontal=True)
 
             st.markdown("**Q4:** Is each mentioned person correctly linked to their corresponding Wikidata items?")
-
-            for i, mention in enumerate(mentions):
-                mention_name = mention.get("name", f"Mention {i+1}")
-                mention_id = mention.get("id", str(i))
-                mention_wikidata_id = mention.get("wikidata_id", "")
-                mention_description = mention.get("description", "No description available")
-
-                # Only show Q4 if Q3 indicates it's a person
-                if q3_answers.get(mention_id) == "Yes":
-                    mention_url = get_wikidata_url(mention_wikidata_id)
-
-                    if mention_url:
+            for nm in mentions:
+                mid = nm["name"]
+                if q3.get(mid) == "Yes":
+                    try:
+                        ids = ast.literal_eval(nm.get("ids", "[]"))
+                    except Exception:
+                        ids = []
+                    qid = ids[0] if ids else None
+                    url = get_wikidata_url(qid)
+                    if url:
                         st.markdown(
-                            f'<div style="font-size: 0.95em; color: #333; background-color: #f0f7ff; padding: 8px; border-radius: 4px; margin: 5px 0;">'
-                            f'<strong>{mention_name}</strong> → <a href="{mention_url}" target="_blank">{mention_wikidata_id}</a><br/>'
-                            f'<em style="color: #666;">{mention_description}</em></div>',
+                            f'<div style="font-size:0.95em;background:#f0f7ff;padding:8px;border-radius:4px;margin:5px 0;">'
+                            f'<strong>{html.escape(mid)}</strong> → '
+                            f'<a href="{url}" target="_blank">{qid}</a></div>',
                             unsafe_allow_html=True
                         )
+                    q4_opts = ["Select...", "Yes", "No", "Cannot determine"]
+                    existing_q4 = existing.get("q4", {}).get(mid, "Select...")
+                    q4_default = q4_opts.index(existing_q4) if existing_q4 in q4_opts else 0
+                    q4[mid] = st.radio(f"'{mid}'", q4_opts, index=q4_default, key=f"q4_{item_id}_{mid}", horizontal=True)
 
-                    q4_options = ["Select...", "Yes", "No", "Cannot determine"]
-                    q4_key = f"q4_{item_id}_{mention_id}"
-                    existing_q4 = existing_annotation.get("q4", {}).get(mention_id, "Select...")
-                    q4_default = q4_options.index(existing_q4) if existing_q4 in q4_options else 0
-
-                    q4_answers[mention_id] = st.radio(
-                        f"'{mention_name}'",
-                        options=q4_options,
-                        index=q4_default,
-                        key=q4_key,
-                        horizontal=True
-                    )
-
-        # Optional notes
         st.markdown("**Notes** (optional)")
-        notes = st.text_area(
-            "Notes",
-            value=existing_annotation.get("notes", ""),
-            key=f"notes_{item_id}",
-            height=80,
-            label_visibility="collapsed",
-            placeholder="Add any comments..."
-        )
+        notes = st.text_area("Notes", value=existing.get("notes", ""), key=f"notes_{item_id}",
+                             height=80, label_visibility="collapsed", placeholder="Add any comments...")
 
     return {
-        "q1": q1_answer if q1_answer != "Select..." else None,
-        "q2": q2_answer if q2_answer and q2_answer != "Select..." else None,
-        "q3": {k: v for k, v in q3_answers.items() if v != "Select..."},
-        "q4": {k: v for k, v in q4_answers.items() if v != "Select..."},
+        "q1": q1 if q1 != "Select..." else None,
+        "q2": q2 if q2 and q2 != "Select..." else None,
+        "q3": {k: v for k, v in q3.items() if v != "Select..."},
+        "q4": {k: v for k, v in q4.items() if v != "Select..."},
         "notes": notes,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
 
-def is_annotation_complete(annotation: dict, item: dict) -> bool:
-    """Check if an annotation is complete (all required questions answered)."""
+
+def is_annotation_complete(annotation, item):
     if not annotation.get("q1"):
         return False
-
     if annotation["q1"] == "Yes" and not annotation.get("q2"):
         return False
-
-    mentions = item.get("mentions", [])
-    if mentions:
-        q3 = annotation.get("q3", {})
-        q4 = annotation.get("q4", {})
-
-        for mention in mentions:
-            mention_id = mention.get("id", str(mentions.index(mention)))
-            if mention_id not in q3:
-                return False
-            if q3.get(mention_id) == "Yes" and mention_id not in q4:
-                return False
-
+    mentions = item.get("target_names", []) + item.get("mention_names", [])
+    q3 = annotation.get("q3", {})
+    q4 = annotation.get("q4", {})
+    for nm in mentions:
+        mid = nm["name"]
+        if mid not in q3:
+            return False
+        if q3.get(mid) == "Yes" and mid not in q4:
+            return False
     return True
 
-def main():
-    st.set_page_config(
-        page_title="Quotation Verification Annotator",
-        page_icon="📝",
-        layout="wide"
-    )
 
+def main():
+    st.set_page_config(page_title="Quotation Verification Annotator", page_icon="📝", layout="wide")
     st.title("Quotation Verification Annotation Interface")
     st.markdown("Verify quotation extraction, speaker attribution, and Wikidata entity linking.")
 
-    # Sidebar for annotator info and navigation
     with st.sidebar:
         st.header("Annotator Settings")
-
-        # Generate an ID on first visit so the annotator can start immediately
         if "annotator_id" not in st.session_state:
             st.session_state.annotator_id = uuid.uuid4().hex[:8]
-
-        annotator_id = st.text_input(
-            "Annotator ID",
-            value=st.session_state.annotator_id,
-            placeholder="Enter your annotator ID"
-        )
-
+        annotator_id = st.text_input("Annotator ID", value=st.session_state.annotator_id)
         if annotator_id:
             st.session_state.annotator_id = annotator_id
             st.success(f"Logged in as: {annotator_id}")
@@ -403,53 +348,42 @@ def main():
 
         st.divider()
 
-        # Load data
-        data = load_input_data()
+        if "data" not in st.session_state:
+            st.session_state.data = load_and_transform()
+        data = st.session_state.data
         if not data:
             st.stop()
 
         annotations = load_annotations(annotator_id)
 
-        # Progress tracking
         st.header("Progress")
-        completed = sum(1 for i, item in enumerate(data)
-                       if is_annotation_complete(annotations.get(str(i), {}), item))
-        progress = completed / len(data) if data else 0
-        st.progress(progress)
+        completed = sum(1 for i, item in enumerate(data) if is_annotation_complete(annotations.get(str(i), {}), item))
+        st.progress(completed / len(data) if data else 0)
         st.write(f"Completed: {completed} / {len(data)}")
 
         st.divider()
-
-        # Navigation
         st.header("Navigation")
-
-        # Item selector
-        item_options = [f"Item {i+1}" + (" ✓" if is_annotation_complete(annotations.get(str(i), {}), item) else "")
-                       for i, item in enumerate(data)]
-
         current_index = st.session_state.get("current_index", 0)
-        selected_item = st.selectbox(
-            "Select item",
-            options=range(len(data)),
-            format_func=lambda x: item_options[x],
-            index=current_index
-        )
-        st.session_state.current_index = selected_item
+        item_options = [
+            f"Item {i+1}: {item['title'][:35] or item['article_id']}" +
+            (" ✓" if is_annotation_complete(annotations.get(str(i), {}), item) else "")
+            for i, item in enumerate(data)
+        ]
+        selected = st.selectbox("Select item", options=range(len(data)),
+                                format_func=lambda x: item_options[x], index=current_index)
+        st.session_state.current_index = selected
 
-        # Navigation buttons
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("← Previous", disabled=selected_item == 0, use_container_width=True):
-                st.session_state.current_index = selected_item - 1
+            if st.button("← Prev", disabled=selected == 0, use_container_width=True):
+                st.session_state.current_index = selected - 1
                 st.rerun()
         with col2:
-            if st.button("Next →", disabled=selected_item == len(data) - 1, use_container_width=True):
-                st.session_state.current_index = selected_item + 1
+            if st.button("Next →", disabled=selected == len(data) - 1, use_container_width=True):
+                st.session_state.current_index = selected + 1
                 st.rerun()
 
         st.divider()
-
-        # Export button
         st.header("Export")
         if st.button("Export Annotations", use_container_width=True):
             export_data = {
@@ -457,14 +391,14 @@ def main():
                 "export_timestamp": datetime.now().isoformat(),
                 "total_items": len(data),
                 "completed_items": completed,
-                "annotations": annotations
+                "annotations": annotations,
             }
             st.download_button(
                 label="Download JSON",
                 data=json.dumps(export_data, indent=2, ensure_ascii=False),
                 file_name=f"annotations_{annotator_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
                 mime="application/json",
-                use_container_width=True
+                use_container_width=True,
             )
 
         if TEST_MODE:
@@ -473,57 +407,47 @@ def main():
             durations = st.session_state.get("batch_durations", {})
             if durations:
                 for idx, dur in sorted(durations.items(), key=lambda x: int(x[0])):
-                    st.write(f"Item {int(idx) + 1}: {format_duration(dur)}")
-                avg = sum(durations.values()) / len(durations)
-                st.write(f"**Average: {format_duration(avg)}**")
+                    st.write(f"Item {int(idx)+1}: {format_duration(dur)}")
+                st.write(f"**Average: {format_duration(sum(durations.values()) / len(durations))}**")
             else:
                 st.write("No items timed yet.")
 
-    # Main content area
-    current_item = data[selected_item]
-    item_id = str(selected_item)
-    existing_annotation = annotations.get(item_id, {})
+    current_item = data[selected]
+    item_id = str(selected)
+    existing = annotations.get(item_id, {})
 
-    # Test mode: record when the annotator first views each item
     if TEST_MODE:
-        if "batch_start_times" not in st.session_state:
-            st.session_state.batch_start_times = {}
-        if "batch_durations" not in st.session_state:
-            st.session_state.batch_durations = {}
+        for key in ("batch_start_times", "batch_durations"):
+            if key not in st.session_state:
+                st.session_state[key] = {}
         if item_id not in st.session_state.batch_start_times:
             st.session_state.batch_start_times[item_id] = time.time()
 
-    # Display item header
-    st.markdown(f"### Item {selected_item + 1} of {len(data)}")
-    if current_item.get("source"):
-        st.caption(f"Source: {current_item.get('source')}")
+    st.markdown(f"### Item {selected + 1} of {len(data)}: {current_item['title']}")
+    if current_item.get("url"):
+        st.caption(f"Source: {current_item['url']}")
 
-    # Render the annotation form
-    new_annotation = render_annotation_form(current_item, item_id, existing_annotation)
+    new_annotation = render_annotation_form(current_item, item_id, existing)
 
-    # Save button
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         if st.button("Save Annotation", type="primary", use_container_width=True):
             if TEST_MODE:
                 start = st.session_state.get("batch_start_times", {}).get(item_id)
-                if start is not None:
+                if start:
                     st.session_state.batch_durations[item_id] = time.time() - start
             annotations[item_id] = new_annotation
             save_annotations(annotator_id, annotations)
             st.success("Annotation saved!")
-
-            # Check if complete
             if is_annotation_complete(new_annotation, current_item):
                 st.balloons()
-
             st.rerun()
 
-    # Show completion status
-    if is_annotation_complete(existing_annotation, current_item):
+    if is_annotation_complete(existing, current_item):
         st.success("This item has been fully annotated.")
     else:
         st.info("Please answer all required questions to complete this annotation.")
+
 
 if __name__ == "__main__":
     main()
