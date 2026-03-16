@@ -1,0 +1,42 @@
+{
+  "0": {
+    "q1": "Yes",
+    "q2": "No",
+    "q3": {
+      "mention_001_1": "Yes"
+    },
+    "q4": {
+      "mention_001_1": "No"
+    },
+    "notes": "",
+    "timestamp": "2026-02-18T09:41:26.902257"
+  },
+  "1": {
+    "q1": "Yes",
+    "q2": "No",
+    "q3": {
+      "mention_002_1": "Yes",
+      "mention_002_2": "Yes"
+    },
+    "q4": {
+      "mention_002_1": "Yes",
+      "mention_002_2": "Yes"
+    },
+    "notes": "",
+    "timestamp": "2026-02-18T09:42:18.517127"
+  },
+  "2": {
+    "q1": "Yes",
+    "q2": "Yes",
+    "q3": {
+      "mention_003_1": "Yes",
+      "mention_003_2": "Yes"
+    },
+    "q4": {
+      "mention_003_1": "Yes",
+      "mention_003_2": "Yes"
+    },
+    "notes": "",
+    "timestamp": "2026-02-18T09:42:52.990113"
+  }
+}

@@ -412,6 +412,9 @@ def main():
             else:
                 st.write("No items timed yet.")
 
+    if selected >= len(data):
+        st.error("No items to display.")
+        st.stop()
     current_item = data[selected]
     item_id = str(selected)
     existing = annotations.get(item_id, {})
