@@ -248,51 +248,40 @@ def gender(gender_list: list) -> str:
 
 @F.udf(T.ArrayType(T.IntegerType()))
 def get_ends(content, quotations):
-    content = content.split(' ')
+    tokens = content.split(" ")
     ends = []
     for quotation in quotations:
-        quotation_start = quotation.quotationOffset
-        start_qm_pos = quotation_start - 1
-        if '``' in content[start_qm_pos]:
-            bq = False
-        elif content[start_qm_pos] == '<blockquote>':
-            bq = True
-        else:
-            ends.append(-1)
-            continue
-
-        end_qm_pos = start_qm_pos + 1
-        for i in range(start_qm_pos + 1, len(content)):
-            if content[i] == "''" or (bq and content == '</blockquote>'):
-                end_qm_pos = i
-                break
-        if content[end_qm_pos] == "''":
-            ends.append(end_qm_pos)
-        else:
-            ends.append(-1)
+        ends.append(quote_end_token_index(tokens, quotation.quotationOffset - 1))
     return ends
+
+
+def quote_end_token_index(tokens: list[str], start_qm_pos: int) -> int:
+    """Token index of the closer for the quote whose opener is ``tokens[start_qm_pos]``.
+
+    Matches ``find_quotation_ends``: opener is a token containing ``,
+    ``<blockquote>``, or ``\\blockquote``; closer is ``''``,
+    ``</blockquote>``, or ``\\endblockquote``.
+    """
+    if start_qm_pos < 0 or start_qm_pos >= len(tokens):
+        return -1
+    opener = tokens[start_qm_pos]
+    low = opener.lower()
+    if "``" in opener:
+        blockquote = False
+    elif low == "<blockquote>" or low.startswith("<blockquote") or low == "\\blockquote":
+        blockquote = True
+    else:
+        return -1
+    for i in range(start_qm_pos + 1, len(tokens)):
+        tok = tokens[i]
+        tok_low = tok.lower()
+        if blockquote and tok_low in {"</blockquote>", "\\endblockquote"}:
+            return i
+        if not blockquote and "''" in tok:
+            return i
+    return -1
+
 
 def get_ends_dict(content, quotations):
-    content = content.split(' ')
-    ends = []
-    for quotation in quotations:
-        quotation_start = quotation['quotationOffset']
-        start_qm_pos = quotation_start - 1
-        if '``' in content[start_qm_pos]:
-            bq = False
-        elif content[start_qm_pos] == '<blockquote>':
-            bq = True
-        else:
-            ends.append(-1)
-            continue
-
-        end_qm_pos = start_qm_pos + 1
-        for i in range(start_qm_pos + 1, len(content)):
-            if content[i] == "''" or (bq and content == '</blockquote>'):
-                end_qm_pos = i
-                break
-        if content[end_qm_pos] == "''":
-            ends.append(end_qm_pos)
-        else:
-            ends.append(-1)
-    return ends
+    tokens = content.split(" ")
+    return [quote_end_token_index(tokens, quotation["quotationOffset"] - 1) for quotation in quotations]

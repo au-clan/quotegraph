@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quotegraph annotation</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Quotegraph gold</div>
+    <label class="annotator">
+      Annotator
+      <input id="annotator" type="text" value="default" autocomplete="username" spellcheck="false">
+    </label>
+    <div id="save-state" class="save-state" data-state="clean">saved</div>
+    <button type="button" id="btn-save" title="Ctrl+S">Save</button>
+    <button type="button" id="btn-help" title="?">Guidelines</button>
+  </header>
+
+  <aside class="batch" id="batch-pane">
+    <div class="batch-head">
+      <span>Articles</span>
+      <span id="batch-progress" class="muted"></span>
+    </div>
+    <ol id="batch-list"></ol>
+  </aside>
+
+  <main class="article-pane">
+    <div class="article-meta">
+      <h1 id="article-title">Load a batch to begin</h1>
+      <div id="article-sub" class="muted"></div>
+    </div>
+    <div id="unmatched-banner" class="banner hidden"></div>
+    <div id="quote-tabs" class="quote-tabs"></div>
+    <div id="selection-bar" class="selection-bar hidden">
+      <span id="selection-preview" class="selection-preview"></span>
+      <button type="button" id="btn-set-speaker" title="S">Set speaker</button>
+      <button type="button" id="btn-set-quotative" title="Q">Set quotative</button>
+      <button type="button" id="btn-add-mention" title="M">Add mention</button>
+      <button type="button" id="btn-set-bounds">Set quote bounds</button>
+      <button type="button" id="btn-add-quote">Add quote</button>
+    </div>
+    <article id="article-text" class="article-text"></article>
+  </main>
+
+  <section class="quote-pane" id="quote-pane">
+    <div class="pane-empty" id="pane-empty">Select an article.</div>
+    <div id="pane-body" class="hidden">
+      <div class="row-status">
+        <span class="kicker">Quote</span>
+        <div class="btn-row">
+          <button type="button" id="btn-keep" class="keep" title="K">Keep</button>
+          <button type="button" id="btn-reject" class="reject" title="R">Reject</button>
+        </div>
+        <label class="reject-reason hidden" id="reject-wrap">
+          Reason
+          <select id="reject-reason">
+            <option value="title">title / headline</option>
+            <option value="scare">scare / scare-emphasis</option>
+            <option value="not_speech">not speech</option>
+            <option value="other">other</option>
+          </select>
+        </label>
+      </div>
+      <p id="quote-text" class="quote-text"></p>
+      <p id="quote-checklist" class="checklist"></p>
+
+      <h2>Quotative</h2>
+      <p class="hint">The reporting cue outside the quote (said, told, according to). Attribution can also be implicit — no cue written. That is a valid label, not a skip.</p>
+      <div class="btn-row">
+        <button type="button" id="btn-no-quotative" title="I">Implicit</button>
+        <button type="button" id="btn-clear-quotative" class="quiet">Clear</button>
+      </div>
+      <div id="quotative-card" class="entity-card"></div>
+      <div id="quotative-chips" class="chips"></div>
+
+      <h2>Speaker</h2>
+      <p class="hint">Select the minimal person span (Obama, she). If that span is a pronoun, keep it and link Wikidata by typing the name or clicking a candidate below.</p>
+      <div class="btn-row">
+        <button type="button" id="btn-cannot" title="C">Cannot identify speaker</button>
+        <button type="button" id="btn-clear-speaker" class="quiet">Clear</button>
+      </div>
+      <div id="speaker-card" class="entity-card"></div>
+      <div id="name-chips" class="chips"></div>
+      <div id="speaker-search" class="search-block"></div>
+
+      <h2>Mentions in the quote</h2>
+      <p class="hint">Entities referred to inside this quote (people, organisations, places, and so on). Select a span in the highlighted quote, then Add mention. Empty is fine when nothing is mentioned.</p>
+      <ol id="mention-list" class="mention-list"></ol>
+      <div id="mention-search" class="search-block"></div>
+
+      <h2>Notes</h2>
+      <textarea id="quote-notes" rows="2" placeholder="Optional note for this quote"></textarea>
+      <textarea id="article-notes" rows="2" placeholder="Optional note for this article"></textarea>
+      <button type="button" id="btn-skip" class="quiet">Skip article</button>
+    </div>
+  </section>
+
+  <dialog id="help">
+    <form method="dialog">
+      <h2>What to annotate</h2>
+      <ul>
+        <li>Direct quotes only. Every span between quotation marks is a candidate; keep real speech and reject titles, scare quotes, and non-speech.</li>
+        <li>Do not annotate the whole article for entities. Only the speaker and mentions inside kept quotes.</li>
+        <li>Quotative: the journalist’s reporting cue (said, told, according to), or <strong>Implicit</strong> when attribution is present with no written cue. Implicit is a label, not a missing value. Not the sentiment of the speaker.</li>
+        <li>Speaker: the source of the quote, as a minimal person span. If that person cannot be identified, mark <strong>Cannot identify speaker</strong> — still keep or reject the quote; do not skip it.</li>
+        <li>Pronouns: keep the pronoun as the speaker/mention span and link it to Wikidata (type the name, or click a nearby name / already-linked entity). Do not mark a separate referent span.</li>
+        <li>Mentions: entities inside the quote (people, organisations, places; names, pronouns, nominals). Link each to Wikidata or mark not in Wikidata. Any Wikidata item is valid; do not skip non-person entities.</li>
+        <li>Sentiment: the speaker’s attitude toward that mention as expressed in the quote (positive, negative, mixed, neutral, or not about them).</li>
+      </ul>
+      <h2>Keys</h2>
+      <p class="keys">K keep · R reject · Q quotative · I implicit · [ ] previous/next quote · S speaker from selection · M mention from selection · C cannot identify · Ctrl+S save</p>
+      <button type="submit">Close</button>
+    </form>
+  </dialog>
+  <script src="/static/app.js"></script>
+</body>
+</html>

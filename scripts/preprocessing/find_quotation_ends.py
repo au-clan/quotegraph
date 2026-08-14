@@ -18,28 +18,33 @@ articles = spark.read.parquet(PATH_TO_ARTICLE_QUOTEBANK)
 
 @F.udf(T.ArrayType(T.IntegerType()))
 def get_ends(content, quotations):
-    content = content.split(' ')
+    tokens = content.split(" ")
     ends = []
     for quotation in quotations:
-        quotation_start = quotation.quotationOffset
-        start_qm_pos = quotation_start - 1
-        if '``' in content[start_qm_pos]:
-            bq = False
-        elif content[start_qm_pos] == '<blockquote>':
-            bq = True
+        start_qm_pos = quotation.quotationOffset - 1
+        if start_qm_pos < 0 or start_qm_pos >= len(tokens):
+            ends.append(-1)
+            continue
+        opener = tokens[start_qm_pos]
+        low = opener.lower()
+        if "``" in opener:
+            blockquote = False
+        elif low == "<blockquote>" or low.startswith("<blockquote") or low == "\\blockquote":
+            blockquote = True
         else:
             ends.append(-1)
             continue
-
-        end_qm_pos = start_qm_pos + 1
-        for i in range(start_qm_pos + 1, len(content)):
-            if content[i] == "''" or (bq and content == '</blockquote>'):
+        end_qm_pos = -1
+        for i in range(start_qm_pos + 1, len(tokens)):
+            tok = tokens[i]
+            tok_low = tok.lower()
+            if blockquote and tok_low in {"</blockquote>", "\\endblockquote"}:
                 end_qm_pos = i
                 break
-        if content[end_qm_pos] == "''":
-            ends.append(end_qm_pos)
-        else:
-            ends.append(-1)
+            if not blockquote and "''" in tok:
+                end_qm_pos = i
+                break
+        ends.append(end_qm_pos)
     return ends
 
 

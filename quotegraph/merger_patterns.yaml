@@ -1,0 +1,125 @@
+# Regex patterns for quote-merger heuristics.
+
+attribution_verbs:
+  - add
+  - added
+  - adds
+  - argue
+  - argued
+  - argues
+  - ask
+  - asked
+  - asks
+  - claim
+  - claimed
+  - claims
+  - comment
+  - commented
+  - comments
+  - continue
+  - continued
+  - continues
+  - declare
+  - declared
+  - declares
+  - explain
+  - explained
+  - explains
+  - note
+  - noted
+  - notes
+  - reply
+  - replied
+  - replies
+  - report
+  - reported
+  - reports
+  - respond
+  - responded
+  - responds
+  - say
+  - said
+  - says
+  - stated
+  - tell
+  - told
+  - tweet
+  - tweeted
+  - tweets
+  - warn
+  - warned
+  - warns
+  - write
+  - writes
+  - wrote
+
+new_speaker_bridge: '(?:[.!?]\s+|\b)(another|other|meanwhile|separately)\b.{0,120}\b(said|saying|says|added|argued|warned|replied|responded|made)\b'
+
+post_sentence_named_attribution: '[.!?]\s+(?!(?:The|This|That)\b)[A-Z][A-Za-z.''-]+(?:\s+[A-Z][A-Za-z.''-]+){0,3}.{0,80}\b(said|says|told|wrote|tweeted|added|argued|warned|replied|responded)\b'
+
+forward_attribution: '\b(similarly|also)\s+.{0,80}\b(said|says|argued|warned|replied|responded)\s+(that|:)\s*$'
+
+reply_turn: '\b(replied|responded)\s*:?\s*$'
+
+background_intro: '^["'']?\s*(in|on|at|during|after|before|when|while)\b'
+
+speaker_switch: '\b(on the other hand|meanwhile|however|but|countered|disputed|criticized|rejected|responding to|in response)\b'
+
+boilerplate_role: '\b(copyright|all rights reserved|advertisement|photo|caption|newsletter|sign up|read more)\b'
+
+non_quote: '\b(copyright|all rights reserved|advertisement|photo|caption|newsletter|sign up|read more)\b'
+
+# Bridges whose attribution clause is to a non-person entity (institution,
+# document, anonymous source).  When the bridge is *short* and matches one of
+# these patterns, the surrounding quoted spans should be tagged `non_quote`
+# and not merged into a person-attributed turn.
+institutional_bridge: '\b(?:the\s+(?:report|agency|company|department|administration|committee|filing|document|piece|editorial|statement|lawsuit|brief|memo|order|ruling|opinion|complaint|indictment|motion|petition|judgment|news\s+release|press\s+release|suit|tweet|email|release|notice|warning|letter|message|post|note|book)\s+(?:said|says|stated|states|reads|read|notes|noted|reports|reported|added|continues|continued|alleges|alleged|claims|claimed|argues|argued|finds|found|wrote|writes|warns|warned)|it\s+(?:said|states|reads|read|notes|reports|added|continues|continued)|(?:an?\s+)?editorial\s+(?:in|said|read|notes|states)|in\s+a\s+statement|a\s+statement\s+(?:said|read)|according\s+to\s+the\s+(?:report|agency|company|department|filing|document|statement|lawsuit|brief|news\s+release|press\s+release|editorial|memo|letter)|(?:said|read|reads|states|notes|wrote)\s+the\s+(?:report|agency|company|department|filing|document|statement|lawsuit|brief|news\s+release|press\s+release|editorial|memo|letter|tweet|post|order|ruling|opinion|piece|suit|book|message)|(?:said|read)\s+an?\s+(?:editorial|statement|filing|brief|memo|complaint|indictment|motion|order|ruling|petition|lawsuit|press\s+release|news\s+release|email|tweet|letter|message)|the\s+(?:source|spokesperson|spokeswoman|spokesman)\s+(?:said|added|stated)|said\s+the\s+source|the\s+(?:company|filing|suit|report|agency)\s+(?:stated|said|added|alleges|claims|reads|states|notes))\b'
+
+# Bridges that look like a *person* attribution: capitalised name (or title +
+# name) close to an attribution verb.  Used to disambiguate
+# same_attribution_clause from institutional attributions.  Case-sensitive
+# (compiled with flags=0) so we can rely on capitalisation to detect names.
+person_attribution_bridge: '\b(?:said|says|told|wrote|writes|tweeted|tweet|added|adds|argued|argues|warned|warns|replied|responded|responds|continued|continues|noted|notes|explained|explains|declared|declares|commented|comments|stated|asked|asks)\s+(?:\w+\s+){0,10}?(?:[A-Z][A-Za-z.''-]+)(?:\s+[A-Z][A-Za-z.''-]+){0,3}\b|\b(?:Mr|Mrs|Ms|Miss|Dr|Prof|Rep|Sen|Gov|President|Senator|Representative|Governor|Sens|Reps|Sir|Dame|Lord|Lady|Judge|Justice|Chief|Officer|Detective|Captain|Lieutenant|General|Colonel|Major|Rabbi|Imam|Father|Sister|Brother)\.?\s+[A-Z][A-Za-z.''-]+\b|\b[A-Z][A-Za-z.''-]+(?:\s+[A-Z][A-Za-z.''-]+){0,3}\s+(?:,\s*[^,]{1,80},\s+)?(?:said|says|told|wrote|writes|tweeted|added|argued|warned|replied|responded|continued|noted|explained|declared|commented|stated)\b'
+
+abbreviations_before_period:
+  - mr
+  - mrs
+  - ms
+  - dr
+  - prof
+  - rep
+  - reps
+  - sen
+  - sens
+  - jr
+  - sr
+  - st
+
+pronoun_speakers:
+  - he
+  - she
+  - they
+  - him
+  - her
+  - them
+  - his
+  - hers
+  - their
+  - theirs
+
+speaker_titles:
+  - mr
+  - mrs
+  - ms
+  - miss
+  - dr
+  - prof
+  - rep
+  - reps
+  - sen
+  - sens
+  - senator
+  - representative
+  - governor
+  - gov
+  - president
