@@ -36,6 +36,8 @@
     <div id="selection-bar" class="selection-bar hidden">
       <span id="selection-preview" class="selection-preview"></span>
       <button type="button" id="btn-set-speaker" title="S">Set speaker</button>
+      <button type="button" id="btn-set-intro" title="P">Intro phrase</button>
+      <button type="button" id="btn-set-first" title="F">First span</button>
       <button type="button" id="btn-set-quotative" title="Q">Set quotative</button>
       <button type="button" id="btn-add-mention" title="M">Add mention</button>
       <button type="button" id="btn-set-bounds">Set quote bounds</button>
@@ -51,7 +53,10 @@
         <span class="kicker">Quote</span>
         <div class="btn-row">
           <button type="button" id="btn-keep" class="keep" title="K">Keep</button>
-          <button type="button" id="btn-reject" class="reject" title="R">Reject</button>
+          <button type="button" id="btn-reject" class="reject" title="-">Reject</button>
+          <button type="button" id="btn-merge-next" title="G">Merge next</button>
+          <button type="button" id="btn-merge-prev" title="Shift+G">Merge prev</button>
+          <button type="button" id="btn-unmerge" class="quiet hidden" title="U">Unmerge</button>
         </div>
         <label class="reject-reason hidden" id="reject-wrap">
           Reason
@@ -76,7 +81,7 @@
       <div id="quotative-chips" class="chips"></div>
 
       <h2>Speaker</h2>
-      <p class="hint">Select the minimal person span (Obama, she). If that span is a pronoun, keep it and link Wikidata by typing the name or clicking a candidate below.</p>
+      <p class="hint">Select the minimal person span (Obama, she). Mark the person’s first mention in the article (required) and optionally an introductory phrase. If a mention is selected, Intro phrase / First span apply to that mention instead. If the speaker span is a pronoun, keep it and link Wikidata by typing the name or clicking a candidate below.</p>
       <div class="btn-row">
         <button type="button" id="btn-cannot" title="C">Cannot identify speaker</button>
         <button type="button" id="btn-clear-speaker" class="quiet">Clear</button>
@@ -86,7 +91,7 @@
       <div id="speaker-search" class="search-block"></div>
 
       <h2>Mentions in the quote</h2>
-      <p class="hint">Entities referred to inside this quote (people, organisations, places, and so on). Select a span in the highlighted quote, then Add mention. Empty is fine when nothing is mentioned.</p>
+      <p class="hint">Entities referred to inside this quote (people, organisations, places, and so on). Select a span in the highlighted quote, then Add mention. Empty is fine when nothing is mentioned. Each mention also needs a first span in the article; select the mention, then First span (F). Intro phrase is optional. Reuse chips copy a span already marked for the same entity.</p>
       <ol id="mention-list" class="mention-list"></ol>
       <div id="mention-search" class="search-block"></div>
 
@@ -102,15 +107,18 @@
       <h2>What to annotate</h2>
       <ul>
         <li>Direct quotes only. Every span between quotation marks is a candidate; keep real speech and reject titles, scare quotes, and non-speech.</li>
-        <li>Do not annotate the whole article for entities. Only the speaker and mentions inside kept quotes.</li>
+        <li>Interrupted quotations are one unit. If the journalist splits speech around a reporting clause — “QUOTE_1,” remarked SPEAKER, “QUOTE_2.” — use <strong>Merge next</strong> (G) so both spans share one speaker, quotative, and mention list. Unmerge (U) splits them again. Do not reject the second span as a duplicate.</li>
+        <li>Do not annotate the whole article for entities. Only the speaker and mentions inside kept quotes. Selecting a span softly highlights the other occurrences of that same string in the article.</li>
         <li>Quotative: the journalist’s reporting cue (said, told, according to), or <strong>Implicit</strong> when attribution is present with no written cue. Implicit is a label, not a missing value. Not the sentiment of the speaker.</li>
         <li>Speaker: the source of the quote, as a minimal person span. If that person cannot be identified, mark <strong>Cannot identify speaker</strong> — still keep or reject the quote; do not skip it.</li>
+        <li>Intro phrase (optional): a role or description that introduces the entity, such as <em>the president of the US</em>. Select it in the article, then <strong>Intro phrase</strong> (P). Applies to the speaker, or to the selected mention. Does not replace the speaker/mention span.</li>
+        <li>First span (required for identified speakers and for every mention): the first mention of that entity in the article. Select it, then <strong>First span</strong> (F). Often a full name; may be the same as the speaker span. Click a reuse chip to copy a span already marked on another speaker or mention.</li>
         <li>Pronouns: keep the pronoun as the speaker/mention span and link it to Wikidata (type the name, or click a nearby name / already-linked entity). Do not mark a separate referent span.</li>
-        <li>Mentions: entities inside the quote (people, organisations, places; names, pronouns, nominals). Link each to Wikidata or mark not in Wikidata. Any Wikidata item is valid; do not skip non-person entities.</li>
+        <li>Mentions: entities inside the quote (people, organisations, places; names, pronouns, nominals). Link each to Wikidata or mark not in Wikidata. Click a QID to open the Wikidata page. Use the Google and Wikidata icons next to <strong>Not in Wikidata</strong> to look a name up. Any Wikidata item is valid; do not skip non-person entities. Linking a QID already used in this article also copies its intro phrase and first span when those fields are still empty.</li>
         <li>Sentiment: the speaker’s attitude toward that mention as expressed in the quote (positive, negative, mixed, neutral, or not about them).</li>
       </ul>
       <h2>Keys</h2>
-      <p class="keys">K keep · R reject · Q quotative · I implicit · [ ] previous/next quote · S speaker from selection · M mention from selection · C cannot identify · Ctrl+S save</p>
+      <p class="keys">← → previous/next quote · K keep · - reject · G merge next · Shift+G merge previous · U unmerge · Q quotative · I implicit · S speaker from selection · P intro phrase (speaker, or selected mention) · F first span (speaker, or selected mention) · M mention from selection · C cannot identify · N not in Wikidata · Ctrl+S save</p>
       <button type="submit">Close</button>
     </form>
   </dialog>

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +13,12 @@ from annotation.quotes import find_quote_candidates, find_unmatched_quote_marks
 from annotation.quotatives import QUOTATIVE_CUES, find_quotative_candidates
 from annotation.schema import (
     article_is_complete,
+    coerce_text_span,
     empty_quotative,
     empty_speaker,
     quote_from_candidate,
     quote_is_touched,
+    quote_segments,
 )
 
 ROOT = Path(__file__).resolve().parent
@@ -121,6 +124,44 @@ def save_annotation(annotator: str, record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+def _quote_outer_ranges(quote: dict[str, Any]) -> list[tuple[int, int]]:
+    segments = quote_segments(quote)
+    return [(int(seg["outer_start"]), int(seg["outer_end"])) for seg in segments]
+
+
+def _ranges_overlap(left: tuple[int, int], right: tuple[int, int]) -> bool:
+    return not (left[1] <= right[0] or right[1] <= left[0])
+
+
+def _next_quote_id(article_id: str, quotes: list[dict[str, Any]]) -> str:
+    numbers = [-1]
+    for quote in quotes:
+        match = re.search(r"q(\d+)$", str(quote.get("id") or ""), re.I)
+        if match:
+            numbers.append(int(match.group(1)))
+    return f"{article_id}-q{max(numbers) + 1}"
+
+
+def union_saved_quotes(base: dict[str, Any], saved_quotes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep labelled quotes and append newly detected spans that do not overlap."""
+    if not saved_quotes:
+        return list(base.get("quotes") or [])
+    covered = [span for quote in saved_quotes for span in _quote_outer_ranges(quote)]
+    combined = list(saved_quotes)
+    taken_ids = {str(quote.get("id") or "") for quote in combined}
+    for candidate in base.get("quotes") or []:
+        if any(_ranges_overlap(span, seen) for span in _quote_outer_ranges(candidate) for seen in covered):
+            continue
+        extra = dict(candidate)
+        if extra["id"] in taken_ids:
+            extra["id"] = _next_quote_id(base["article_id"], combined)
+        taken_ids.add(extra["id"])
+        covered.extend(_quote_outer_ranges(extra))
+        combined.append(extra)
+    combined.sort(key=lambda quote: (int(quote.get("outer_start") or 0), -int(quote.get("outer_end") or 0)))
+    return combined
+
+
 def merge_saved(base: dict[str, Any], saved: dict[str, Any] | None) -> dict[str, Any]:
     if not saved:
         return base
@@ -132,7 +173,7 @@ def merge_saved(base: dict[str, Any], saved: dict[str, Any] | None) -> dict[str,
         merged["skip_reason"] = saved.get("skip_reason") or ""
         return merged
     merged = dict(base)
-    merged["quotes"] = saved.get("quotes") or base["quotes"]
+    merged["quotes"] = union_saved_quotes(base, saved.get("quotes") or [])
     merged["skipped"] = saved.get("skipped") or False
     merged["skip_reason"] = saved.get("skip_reason") or ""
     merged["notes"] = saved.get("notes") or ""
@@ -149,21 +190,29 @@ def coerce_quote(quote: dict[str, Any]) -> dict[str, Any]:
         quotative["status"] = "implicit"
     speaker = quote.setdefault("speaker", empty_speaker())
     for key, default in empty_speaker().items():
-        speaker.setdefault(key, default)
+        if key in {"intro_phrase", "first_span"}:
+            speaker[key] = coerce_text_span(speaker.get(key))
+        else:
+            speaker.setdefault(key, default)
     for mention in quote.get("mentions") or []:
         mention.setdefault("qid", None)
         mention.setdefault("qid_label", "")
+        mention.setdefault("qid_description", "")
         mention.setdefault("nil", False)
+        mention["intro_phrase"] = coerce_text_span(mention.get("intro_phrase"))
+        mention["first_span"] = coerce_text_span(mention.get("first_span"))
     return quote
 
 
 def attach_suggestions(text: str, quote: dict[str, Any]) -> dict[str, Any]:
+    segments = quote_segments(quote)
     quote["quotative_candidates"] = find_quotative_candidates(
         text,
         inner_start=int(quote.get("inner_start") or 0),
         inner_end=int(quote.get("inner_end") or 0),
         outer_start=int(quote.get("outer_start") or 0),
         outer_end=int(quote.get("outer_end") or 0),
+        segments=segments if len(segments) >= 2 else None,
     )
     quote["name_candidates"] = nearest_name_candidates(text, center=int(quote.get("outer_start") or 0))
     return quote

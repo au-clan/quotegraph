@@ -59,6 +59,22 @@ def _blockquote_open_len(text_low: str, i: int) -> int:
     return 0
 
 
+def _unmatched_double_closer_is_opener(text: str, i: int) -> bool:
+    """True for continuation wraps (faith:”... they're...”) not stray citation marks.
+
+    ``reported” boston globe`` is a leftover PTB closer, not an opening quote.
+    """
+    j = i - 1
+    while j >= 0 and text[j].isspace():
+        j -= 1
+    if j >= 0 and text[j] in ":,":
+        return True
+    k = i + 1
+    while k < len(text) and text[k].isspace():
+        k += 1
+    return k < len(text) and text[k] in ".…"
+
+
 def _blockquote_close_len(text_low: str, i: int) -> int:
     if text_low.startswith("\\endblockquote", i):
         return len("\\endblockquote")
@@ -71,7 +87,9 @@ def _scan(text: str, *, min_inner_chars: int = 1) -> tuple[list[QuoteCandidate],
     """Pair every quotation-mark span, including nested curly / guillemet pairs.
 
     ASCII ``"`` and PTB ```` / ``''`` toggle (they do not nest). Apostrophes
-    between letters are ignored. ASCII ``'`` is never a delimiter.
+    between letters are ignored. ASCII ``'`` is never a delimiter. A new
+    curly opener ``“`` while a curly span is already open ends that
+    paragraph (multi-paragraph quotations omit closers until the last para).
     """
     found: list[QuoteCandidate] = []
     stack: list[tuple[int, int, str]] = []  # (outer_start, inner_start, kind)
@@ -139,6 +157,15 @@ def _scan(text: str, *, min_inner_chars: int = 1) -> tuple[list[QuoteCandidate],
                 i += 1
                 continue
             kind = "guillemet" if ch == "\u00ab" else ("curly-single" if ch == "\u2018" else "curly")
+            # Multi-paragraph quotation (AP/CMOS): each paragraph opens with “
+            # and only the last paragraph has a closer. A new “ while one is
+            # already open ends the previous paragraph, then starts the next.
+            if kind == "curly" and stack and stack[-1][2] == "curly":
+                outer_start, inner_start, prev_kind = stack.pop()
+                inner_end = i
+                while inner_end > inner_start and text[inner_end - 1].isspace():
+                    inner_end -= 1
+                emit(outer_start, inner_start, inner_end, inner_end, prev_kind)
             stack.append((i, i + 1, kind))
             i += 1
             continue
@@ -153,11 +180,18 @@ def _scan(text: str, *, min_inner_chars: int = 1) -> tuple[list[QuoteCandidate],
                 want = "curly-single"
             else:
                 want = "curly"
+            closed = False
             for j in range(len(stack) - 1, -1, -1):
                 if stack[j][2] == want:
                     outer_start, inner_start, kind = stack.pop(j)
                     emit(outer_start, inner_start, i, i + 1, kind)
+                    closed = True
                     break
+            # Same-direction wrap: ”...they're...” (continuation after a colon,
+            # or a detokenizer that emitted closers on both ends). Do not do
+            # this for ’ — it is usually an unmatched apostrophe.
+            if not closed and want == "curly" and _unmatched_double_closer_is_opener(text, i):
+                stack.append((i, i + 1, want))
             i += 1
             continue
 
