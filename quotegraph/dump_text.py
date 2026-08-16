@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import re
 
-import ftfy
-
 _MOSES = None
 
 # Converter leftovers that jsoup did not strip. Not linguistic content.
@@ -114,14 +112,46 @@ def _ptb_tokens_for_moses(tokens: list[str]) -> list[str]:
                 out[-1] += "n't"
                 continue
             out.append(tok)
+    return _move_possessive_outside_closer(out)
+
+
+def _move_possessive_outside_closer(tokens: list[str]) -> list[str]:
+    """`` the world 's '' → “the world”'s (show name + possessive, not quoted 's)."""
+    out: list[str] = []
+    depth = 0
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if (
+            tok == "'s"
+            and i + 1 < len(tokens)
+            and tokens[i + 1] == _CLOSE_Q
+            and depth > 0
+        ):
+            out.append(_CLOSE_Q)
+            out.append("'s")
+            depth -= 1
+            i += 2
+            continue
+        if tok == _OPEN_Q:
+            depth += 1
+        elif tok == _CLOSE_Q:
+            depth = max(0, depth - 1)
+        out.append(tok)
+        i += 1
     return out
 
 
-def clean_dump_text(text: str) -> str:
+def clean_dump_text(text: str, *, fix_encoding: bool = True) -> str:
     """Detokenize a PTB dump body and drop obvious script/template junk."""
     if not text or not text.strip():
         return ""
-    text = ftfy.fix_text(text)
+    if fix_encoding:
+        try:
+            from restore_text import fix_mojibake, restore_question_marks
+        except ImportError:
+            from quotegraph.restore_text import fix_mojibake, restore_question_marks
+        text = restore_question_marks(fix_mojibake(text))
     detok = _moses().detokenize(_ptb_tokens_for_moses(text.split()))
     detok = detok.replace(_OPEN_Q + " ", "“").replace(" " + _CLOSE_Q, "”")
     detok = detok.replace(_OPEN_Q, "“").replace(_CLOSE_Q, "”")
