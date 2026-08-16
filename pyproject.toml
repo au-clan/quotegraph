@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "diskcache>=5.6.3",
     "httpx>=0.28.1",
     "jdk4py>=21.0.8.0",
     "pandas>=2.3.3",
@@ -15,7 +14,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "tld>=0.13.1",
     "tqdm>=4.67.1",
-    "ujson>=5.11.0",
+    "ujson>=5.13.0",
     "fastapi>=0.115.0",
     "uvicorn>=0.34.0",
     "ftfy>=6.3.1",
